@@ -129,6 +129,7 @@ FEISHU_WEBHOOK_URL=
 FEISHU_KEYWORD=美股
 FEISHU_NOTIFY_COOLDOWN_MS=1800000
 FEISHU_NOTIFY_MAX_ITEMS=5
+NEXT_PUBLIC_BASE_PATH=
 NEXT_PUBLIC_API_BASE_URL=http://localhost:4000
 ```
 
@@ -145,6 +146,17 @@ FEISHU_WEBHOOK_URL 非空
 ```
 
 默认消息包含 `FEISHU_KEYWORD=美股`，用于通过飞书自定义关键词安全校验。同一交易对默认 30 分钟内只推送一次，避免每 5 分钟扫描都重复刷屏；可以用 `FEISHU_NOTIFY_COOLDOWN_MS` 调整。单条消息最多推送 `FEISHU_NOTIFY_MAX_ITEMS` 个机会，默认 5 个。
+
+### 子路由部署
+
+如果不想占用域名根路径，可以在构建 Web 时设置 `NEXT_PUBLIC_BASE_PATH`。例如部署到个人主页域名的项目子路由：
+
+```text
+NEXT_PUBLIC_BASE_PATH=/cross-sight-bitget
+NEXT_PUBLIC_API_BASE_URL=https://wuliaobtc.cloud/cross-sight-bitget/api
+```
+
+对应 Nginx 保留根路径静态主页，只把 `/cross-sight-bitget/` 反代到 Next Web，把 `/cross-sight-bitget/api/` 反代到 API。
 
 ## API
 
