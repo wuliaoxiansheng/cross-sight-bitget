@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { config } from "../config/env.js";
 import { WATCHLIST } from "../data/pairs.js";
 import { evaluateBasisOpportunity } from "../services/basisEngine.js";
@@ -53,6 +53,31 @@ async function resolveLivePair(input: {
   return discoveredPair?.pair ?? null;
 }
 
+// Optional shared-secret guard for the heavy Bitget-fanout endpoints. No-op when
+// config.apiToken is empty (local dev default).
+export async function requireApiToken(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  if (!config.apiToken) return;
+  if (request.headers["x-api-token"] !== config.apiToken) {
+    await reply.code(401).send({ error: "UNAUTHORIZED", message: "Missing or invalid x-api-token." });
+  }
+}
+
+// Throttle on-demand full scans so callers can't hammer Bitget (and risk an
+// egress-IP ban). Shared across /refresh and /live-all; cached data is always
+// available via /opportunities/snapshot without throttling.
+let lastLiveScanAt = 0;
+async function throttleLiveScan(_request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  const now = Date.now();
+  if (now - lastLiveScanAt < config.liveScanMinIntervalMs) {
+    await reply.code(429).send({
+      error: "RATE_LIMITED",
+      message: `On-demand scans are limited to once per ${config.liveScanMinIntervalMs}ms. Use /opportunities/snapshot for cached results.`
+    });
+    return;
+  }
+  lastLiveScanAt = now;
+}
+
 export async function opportunityRoutes(app: FastifyInstance) {
   const bitget = new BitgetClient();
 
@@ -62,7 +87,7 @@ export async function opportunityRoutes(app: FastifyInstance) {
     };
   });
 
-  app.post("/opportunities/refresh", async () => {
+  app.post("/opportunities/refresh", { preHandler: [requireApiToken, throttleLiveScan] }, async () => {
     return {
       data: await opportunityScanCache.runOnce()
     };
@@ -93,7 +118,10 @@ export async function opportunityRoutes(app: FastifyInstance) {
     });
   });
 
-  app.get<{ Querystring: LiveAllQuery }>("/opportunities/live-all", async (request) => {
+  app.get<{ Querystring: LiveAllQuery }>(
+    "/opportunities/live-all",
+    { preHandler: [requireApiToken, throttleLiveScan] },
+    async (request) => {
     const limit = request.query.limit == null ? null : Number(request.query.limit);
     const notionalUsd = Number(request.query.notionalUsd ?? config.defaultNotionalUsd);
 
@@ -106,7 +134,10 @@ export async function opportunityRoutes(app: FastifyInstance) {
     };
   });
 
-  app.get<{ Querystring: LiveQuery }>("/opportunities/live", async (request) => {
+  app.get<{ Querystring: LiveQuery }>(
+    "/opportunities/live",
+    { preHandler: requireApiToken },
+    async (request) => {
     const pairId = request.query.pairId ?? WATCHLIST[0]?.id;
     const pair = await resolveLivePair({
       bitget,

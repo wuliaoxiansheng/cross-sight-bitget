@@ -6,6 +6,13 @@ export type AppConfig = {
   defaultNotionalUsd: number;
   openEdgeThreshold: number;
   fundingPeriodsToPrice: number;
+  // Optional shared secret. When set, the heavy Bitget-fanout endpoints
+  // (/opportunities/refresh, /live-all, /live, /paper-trades/preview) require a
+  // matching `x-api-token` header. Empty string = open (local dev default).
+  apiToken: string;
+  // Minimum spacing between on-demand full scans triggered over HTTP, to avoid
+  // hammering Bitget (and getting the egress IP rate-limited/banned).
+  liveScanMinIntervalMs: number;
 };
 
 function numberFromEnv(name: string, fallback: number): number {
@@ -27,6 +34,8 @@ export const config: AppConfig = {
   corsOrigin: process.env.CORS_ORIGIN ?? "http://localhost:3000",
   defaultNotionalUsd: numberFromEnv("DEFAULT_NOTIONAL_USD", 5000),
   openEdgeThreshold: numberFromEnv("OPEN_EDGE_THRESHOLD", 0.003),
-  fundingPeriodsToPrice: numberFromEnv("FUNDING_PERIODS_TO_PRICE", 1)
+  fundingPeriodsToPrice: numberFromEnv("FUNDING_PERIODS_TO_PRICE", 1),
+  apiToken: process.env.API_TOKEN ?? "",
+  liveScanMinIntervalMs: numberFromEnv("LIVE_SCAN_MIN_INTERVAL_MS", 10_000)
 };
 

@@ -4,6 +4,7 @@ import { WATCHLIST } from "../data/pairs.js";
 import { evaluateBasisOpportunity } from "../services/basisEngine.js";
 import { BitgetClient } from "../services/bitgetClient.js";
 import { buildPaperTradePreview } from "../services/paperTrading.js";
+import { requireApiToken } from "./opportunities.js";
 
 type PreviewQuery = {
   pairId?: string;
@@ -21,7 +22,10 @@ export async function paperTradeRoutes(app: FastifyInstance) {
     };
   });
 
-  app.get<{ Querystring: PreviewQuery }>("/paper-trades/preview", async (request) => {
+  app.get<{ Querystring: PreviewQuery }>(
+    "/paper-trades/preview",
+    { preHandler: requireApiToken },
+    async (request) => {
     const pairId = request.query.pairId ?? WATCHLIST[0]?.id;
     const pair = WATCHLIST.find((item) => item.id === pairId && item.enabled);
 

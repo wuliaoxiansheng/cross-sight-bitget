@@ -25,13 +25,18 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function normalizeLevels(levels: unknown[]): OrderBookLevel[] {
-  return levels
+// Bitget returns bids best-first (desc) and asks best-first (asc), but we sort
+// explicitly so the VWAP walk in basisEngine stays correct even if the upstream
+// ordering ever changes or merged/aggregated levels arrive out of order.
+function normalizeLevels(levels: unknown[], side: "bids" | "asks"): OrderBookLevel[] {
+  const normalized = levels
     .map((level) => {
       const [price, size] = level as [string | number, string | number];
       return { price: toNumber(price), size: toNumber(size) };
     })
     .filter((level) => level.price > 0 && level.size > 0);
+
+  return normalized.sort((a, b) => (side === "bids" ? b.price - a.price : a.price - b.price));
 }
 
 function normalizeSpotTicker(ticker: Record<string, unknown>): SpotTicker {
@@ -53,6 +58,8 @@ function normalizeFuturesTicker(ticker: Record<string, unknown>): FuturesTicker 
     lastPrice: toNumber(ticker.lastPr),
     bidPrice: toNumber(ticker.bidPr),
     askPrice: toNumber(ticker.askPr),
+    bidSize: toNumber(ticker.bidSz),
+    askSize: toNumber(ticker.askSz),
     markPrice: toNumber(ticker.markPrice),
     indexPrice: toNumber(ticker.indexPrice),
     fundingRate: toNumber(ticker.fundingRate),
@@ -133,8 +140,8 @@ export class BitgetClient {
     );
 
     return {
-      bids: normalizeLevels(data.bids),
-      asks: normalizeLevels(data.asks),
+      bids: normalizeLevels(data.bids, "bids"),
+      asks: normalizeLevels(data.asks, "asks"),
       timestamp: toNumber(data.ts)
     };
   }
@@ -162,8 +169,8 @@ export class BitgetClient {
     );
 
     return {
-      bids: normalizeLevels(data.bids),
-      asks: normalizeLevels(data.asks),
+      bids: normalizeLevels(data.bids, "bids"),
+      asks: normalizeLevels(data.asks, "asks"),
       timestamp: toNumber(data.ts)
     };
   }

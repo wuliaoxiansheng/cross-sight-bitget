@@ -167,12 +167,15 @@ export function evaluateBasisOpportunity(input: {
     askPrice: input.spotTicker.askPrice,
     askSize: input.spotTicker.askSize
   });
+  // Fall back to the futures ticker's top-of-book size (not infinite depth):
+  // if the merge-depth call failed and the ticker has no size either, the book
+  // stays empty so depthOk turns false instead of fabricating a fillable book.
   const futuresBook = withTickerFallback({
     book: input.futuresBook,
     bidPrice: input.futuresTicker.bidPrice,
-    bidSize: Number.POSITIVE_INFINITY,
+    bidSize: input.futuresTicker.bidSize,
     askPrice: input.futuresTicker.askPrice,
-    askSize: Number.POSITIVE_INFINITY
+    askSize: input.futuresTicker.askSize
   });
 
   // Entry: buy the RToken spot leg from asks, then short the same base size
@@ -185,15 +188,26 @@ export function evaluateBasisOpportunity(input: {
   const spotExit = consumeByBase(spotBook.bids, spotEntry.baseQuantity);
   const futuresExit = consumeByBase(futuresBook.asks, spotEntry.baseQuantity);
 
+  // entryBasis: futures premium over spot when opening (short futures / long spot).
+  // closeBasis: spot-sell vs futures-cover when unwinding — note the numerator/
+  // denominator are flipped vs entryBasis, so closeBasis > 0 means the basis has
+  // inverted in our favor (spot now sells above where we buy futures back).
   const entryBasis = spotEntry.vwap > 0 && futuresEntry.vwap > 0 ? futuresEntry.vwap / spotEntry.vwap - 1 : 0;
   const closeBasis = spotExit.vwap > 0 && futuresExit.vwap > 0 ? spotExit.vwap / futuresExit.vwap - 1 : 0;
   const fundingApr = calculateFundingApr(input.funding.fundingRate, input.funding.fundingIntervalHours);
   const fundingContext = buildFundingContext(input.funding, input.fundingHistory);
   const marketSession = getMarketSessionContext();
 
-  // Fee drag is expressed as a percentage of notional, so it can be compared
-  // directly with entry basis and funding edge.
-  const feeDrag = input.pair.spotFeeRate + input.pair.futuresFeeRate;
+  // Fee drag is a fraction of notional. A full basis trade has FOUR taker fills
+  // (open: spot buy + futures sell; close: spot sell + futures buy), so the
+  // round-trip cost is 2x the per-leg taker rates. Counting only the entry legs
+  // would make expectedEdge optimistic and surface OPEN signals that don't cover
+  // the eventual unwind.
+  const feeDrag = 2 * (input.pair.spotFeeRate + input.pair.futuresFeeRate);
+  // NOTE: expectedEdge mixes a one-time entry basis with a per-period funding
+  // accrual (fundingPeriodsToPrice periods) and the round-trip fee. It is a
+  // heuristic screen, not a holding-period P&L — tune fundingPeriodsToPrice to
+  // the horizon you actually intend to hold.
   const expectedFundingEdge = input.funding.fundingRate * config.fundingPeriodsToPrice;
   const expectedEdge = entryBasis + expectedFundingEdge - feeDrag;
   const depthOk =

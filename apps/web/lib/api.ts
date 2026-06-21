@@ -255,14 +255,17 @@ export async function getOpportunitySnapshot(): Promise<OpportunitySnapshot> {
     const payload = (await response.json()) as { data: OpportunitySnapshot };
     return payload.data;
   } catch {
+    // API is unreachable. Surface this as an explicit error state so the UI does
+    // NOT present the static sample (which contains a fabricated OPEN signal) as a
+    // live, tradeable opportunity. The sample is kept only as visual scaffolding.
     return {
-      status: "ready",
+      status: "error",
       latestScan: sampleScan,
       scanning: false,
       startedAt: null,
       completedAt: sampleScan.generatedAt,
       nextRunAt: null,
-      lastError: "API unavailable, showing local sample data.",
+      lastError: "API unavailable — showing demo sample data, not live quotes.",
       intervalMs: 30_000,
       limit: null
     };

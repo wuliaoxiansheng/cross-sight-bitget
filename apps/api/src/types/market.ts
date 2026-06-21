@@ -47,6 +47,8 @@ export type FuturesTicker = {
   lastPrice: number;
   bidPrice: number;
   askPrice: number;
+  bidSize: number;
+  askSize: number;
   markPrice: number;
   indexPrice: number;
   fundingRate: number;
