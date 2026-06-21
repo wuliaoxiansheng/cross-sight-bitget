@@ -73,7 +73,7 @@ export type OpportunityScanItem = {
 export type OpportunityScan = {
   generatedAt: string;
   notionalUsd: number;
-  requestedLimit: number;
+  requestedLimit: number | null;
   discoveredPairs: number;
   scannedPairs: number;
   openCount: number;
@@ -93,7 +93,7 @@ export type OpportunitySnapshot = {
   nextRunAt: string | null;
   lastError: string | null;
   intervalMs: number;
-  limit: number;
+  limit: number | null;
 };
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
@@ -112,7 +112,7 @@ const sampleMarketSession: MarketSessionContext = {
 export const sampleScan: OpportunityScan = {
   generatedAt: now,
   notionalUsd: 5000,
-  requestedLimit: 100,
+  requestedLimit: null,
   discoveredPairs: 6,
   scannedPairs: 6,
   openCount: 1,
@@ -264,7 +264,7 @@ export async function getOpportunitySnapshot(): Promise<OpportunitySnapshot> {
       nextRunAt: null,
       lastError: "API unavailable, showing local sample data.",
       intervalMs: 30_000,
-      limit: 100
+      limit: null
     };
   }
 }

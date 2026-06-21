@@ -8,7 +8,7 @@ export async function pairRoutes(app: FastifyInstance) {
 
   app.get("/pairs", async () => {
     try {
-      const discovered = await discoverRTokenPairs(bitget, 20);
+      const discovered = await discoverRTokenPairs(bitget, { pinnedPairs: WATCHLIST });
       return {
         data: discovered.map((item) => ({
           ...item.pair,

@@ -1,10 +1,11 @@
+import { WATCHLIST } from "../data/pairs.js";
 import type { FundingRate, OpportunityScan, OpportunityScanItem } from "../types/market.js";
 import { evaluateBasisOpportunity } from "./basisEngine.js";
 import { BitgetClient } from "./bitgetClient.js";
 import { discoverRTokenPairs } from "./rtokenDiscovery.js";
 
-const MAX_SCAN_LIMIT = 100;
 const SCAN_CONCURRENCY = 10;
+const WATCHLIST_KEYS = new Set(WATCHLIST.map((pair) => `${pair.spotSymbol}:${pair.futuresSymbol}`));
 
 function fallbackFunding(symbol: string, fundingRate: number): FundingRate {
   return {
@@ -22,6 +23,10 @@ async function fallbackFundingHistory() {
 }
 
 function sortItems(a: OpportunityScanItem, b: OpportunityScanItem): number {
+  const aPinned = WATCHLIST_KEYS.has(`${a.pair.spotSymbol}:${a.pair.futuresSymbol}`);
+  const bPinned = WATCHLIST_KEYS.has(`${b.pair.spotSymbol}:${b.pair.futuresSymbol}`);
+  if (aPinned !== bPinned) return aPinned ? -1 : 1;
+
   const rank = {
     OPEN: 0,
     CLOSE: 1,
@@ -55,11 +60,14 @@ async function mapWithConcurrency<T, R>(
 
 export async function scanRTokenOpportunities(input: {
   bitget: BitgetClient;
-  limit: number;
+  limit?: number | null;
   notionalUsd: number;
 }): Promise<OpportunityScan> {
-  const safeLimit = Math.max(1, Math.min(input.limit, MAX_SCAN_LIMIT));
-  const discoveredPairs = await discoverRTokenPairs(input.bitget, safeLimit);
+  const safeLimit = input.limit == null ? null : Math.max(1, input.limit);
+  const discoveredPairs = await discoverRTokenPairs(input.bitget, {
+    limit: safeLimit,
+    pinnedPairs: WATCHLIST
+  });
 
   const items = await mapWithConcurrency(
     discoveredPairs,

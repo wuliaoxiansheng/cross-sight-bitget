@@ -147,7 +147,7 @@ export type OpportunityScanItem = {
 export type OpportunityScan = {
   generatedAt: string;
   notionalUsd: number;
-  requestedLimit: number;
+  requestedLimit: number | null;
   discoveredPairs: number;
   scannedPairs: number;
   openCount: number;
@@ -167,5 +167,5 @@ export type OpportunitySnapshot = {
   nextRunAt: string | null;
   lastError: string | null;
   intervalMs: number;
-  limit: number;
+  limit: number | null;
 };

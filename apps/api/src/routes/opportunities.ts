@@ -47,7 +47,9 @@ async function resolveLivePair(input: {
   const snapshotPair = opportunityScanCache.getSnapshot().latestScan?.items.find((item) => matches(item.pair))?.pair;
   if (snapshotPair) return snapshotPair;
 
-  const discoveredPair = (await discoverRTokenPairs(input.bitget, 100)).find((item) => matches(item.pair));
+  const discoveredPair = (await discoverRTokenPairs(input.bitget, { pinnedPairs: WATCHLIST })).find((item) =>
+    matches(item.pair)
+  );
   return discoveredPair?.pair ?? null;
 }
 
@@ -92,13 +94,13 @@ export async function opportunityRoutes(app: FastifyInstance) {
   });
 
   app.get<{ Querystring: LiveAllQuery }>("/opportunities/live-all", async (request) => {
-    const limit = Number(request.query.limit ?? 100);
+    const limit = request.query.limit == null ? null : Number(request.query.limit);
     const notionalUsd = Number(request.query.notionalUsd ?? config.defaultNotionalUsd);
 
     return {
       data: await scanRTokenOpportunities({
         bitget,
-        limit: Number.isFinite(limit) ? limit : 12,
+        limit: limit == null || Number.isFinite(limit) ? limit : null,
         notionalUsd: Number.isFinite(notionalUsd) ? notionalUsd : config.defaultNotionalUsd
       })
     };

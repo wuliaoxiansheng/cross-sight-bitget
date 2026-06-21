@@ -5,9 +5,9 @@ import { scanRTokenOpportunities } from "./opportunityScanner.js";
 
 type Subscriber = (snapshot: OpportunitySnapshot) => void;
 
-const SCAN_INTERVAL_MS = 30_000;
-const STALE_AFTER_MS = 120_000;
-const DEFAULT_LIMIT = 100;
+const SCAN_INTERVAL_MS = 300_000;
+const STALE_AFTER_MS = 900_000;
+const DEFAULT_LIMIT: number | null = null;
 
 export class OpportunityScanCache {
   private latestScan: OpportunityScan | null = null;
@@ -22,7 +22,7 @@ export class OpportunityScanCache {
   constructor(
     private readonly bitget = new BitgetClient(),
     private readonly intervalMs = SCAN_INTERVAL_MS,
-    private readonly limit = DEFAULT_LIMIT
+    private readonly limit: number | null = DEFAULT_LIMIT
   ) {}
 
   start() {
@@ -106,4 +106,3 @@ export class OpportunityScanCache {
 }
 
 export const opportunityScanCache = new OpportunityScanCache();
-

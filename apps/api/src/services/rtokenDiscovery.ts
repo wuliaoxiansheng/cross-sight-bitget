@@ -3,9 +3,13 @@ import { BitgetClient } from "./bitgetClient.js";
 
 const FUTURES_FEE_RATE = 0.0006;
 const MAX_NOTIONAL_USD = 10_000;
-const MAX_DISCOVERY_LIMIT = 100;
 const MIN_PRICE_RATIO = 0.5;
 const MAX_PRICE_RATIO = 2;
+
+type DiscoveryOptions = {
+  limit?: number | null;
+  pinnedPairs?: MarketPairConfig[];
+};
 
 function toPairId(spotSymbol: string, futuresSymbol: string): string {
   return `${spotSymbol}_${futuresSymbol}`.toLowerCase();
@@ -30,12 +34,37 @@ function makePairConfig(input: {
   };
 }
 
+function pairKey(pair: Pick<MarketPairConfig, "spotSymbol" | "futuresSymbol">): string {
+  return `${pair.spotSymbol}:${pair.futuresSymbol}`;
+}
+
+function hydratePinnedPair(
+  pair: MarketPairConfig,
+  spotTickerBySymbol: Map<string, SpotTicker>,
+  futuresTickerBySymbol: Map<string, FuturesTicker>
+): DiscoveredRTokenPair | null {
+  const spotTicker = spotTickerBySymbol.get(pair.spotSymbol);
+  const futuresTicker = futuresTickerBySymbol.get(pair.futuresSymbol);
+
+  if (!spotTicker || !futuresTicker) return null;
+
+  return {
+    pair,
+    spotTicker,
+    futuresTicker,
+    spotVolumeUsd: spotTicker.quoteVolume
+  };
+}
+
 // RToken discovery is intentionally strict:
 // rSPCX spot maps to SPCXUSDT perp, rQQQ maps to QQQUSDT, etc.
 // We do not fuzzy match product names because similarly named locked/Earn
 // products can exist on Bitget and should never be included in this monitor.
-export async function discoverRTokenPairs(bitget: BitgetClient, limit: number): Promise<DiscoveredRTokenPair[]> {
-  const safeLimit = Math.max(1, Math.min(limit, MAX_DISCOVERY_LIMIT));
+export async function discoverRTokenPairs(
+  bitget: BitgetClient,
+  options: DiscoveryOptions = {}
+): Promise<DiscoveredRTokenPair[]> {
+  const safeLimit = options.limit == null ? null : Math.max(1, options.limit);
   const [symbols, spotTickers, futuresTickers] = await Promise.all([
     bitget.getSpotSymbols(),
     bitget.getSpotTickers(),
@@ -47,7 +76,13 @@ export async function discoverRTokenPairs(bitget: BitgetClient, limit: number): 
     futuresTickers.map((ticker) => [ticker.symbol, ticker])
   );
 
-  return symbols
+  const pinnedPairs = (options.pinnedPairs ?? [])
+    .filter((pair) => pair.enabled)
+    .map((pair) => hydratePinnedPair(pair, spotTickerBySymbol, futuresTickerBySymbol))
+    .filter((pair): pair is DiscoveredRTokenPair => Boolean(pair));
+
+  const pinnedKeys = new Set(pinnedPairs.map((item) => pairKey(item.pair)));
+  const autoPairs = symbols
     .filter((symbol) => {
       return (
         symbol.status === "online" &&
@@ -82,6 +117,12 @@ export async function discoverRTokenPairs(bitget: BitgetClient, limit: number): 
       };
     })
     .filter((pair): pair is DiscoveredRTokenPair => Boolean(pair))
-    .sort((a, b) => b.spotVolumeUsd - a.spotVolumeUsd)
-    .slice(0, safeLimit);
+    .filter((item) => !pinnedKeys.has(pairKey(item.pair)))
+    .sort((a, b) => b.spotVolumeUsd - a.spotVolumeUsd);
+
+  if (safeLimit == null) {
+    return [...pinnedPairs, ...autoPairs];
+  }
+
+  return [...pinnedPairs, ...autoPairs.slice(0, Math.max(0, safeLimit - pinnedPairs.length))];
 }

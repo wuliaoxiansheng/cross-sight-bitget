@@ -161,7 +161,7 @@ export function DashboardClient({ initialSnapshot }: { initialSnapshot: Opportun
       <div className="scan-bar">
         <strong>{statusText(snapshot)}</strong>
         <span>最后更新：{updatedAt}</span>
-        <span>后台上限：{snapshot.limit} 个</span>
+        <span>后台范围：{snapshot.limit == null ? "全量 RToken" : `${snapshot.limit} 个`}</span>
         <span>下次扫描：{snapshot.nextRunAt ? new Date(snapshot.nextRunAt).toLocaleTimeString("zh-CN") : "排队中"}</span>
       </div>
 
