@@ -124,8 +124,27 @@ CORS_ORIGIN=http://localhost:3000
 DEFAULT_NOTIONAL_USD=5000
 OPEN_EDGE_THRESHOLD=0.003
 FUNDING_PERIODS_TO_PRICE=1
+LIVE_SCAN_MIN_INTERVAL_MS=10000
+FEISHU_WEBHOOK_URL=
+FEISHU_KEYWORD=美股
+FEISHU_NOTIFY_COOLDOWN_MS=1800000
+FEISHU_NOTIFY_MAX_ITEMS=5
 NEXT_PUBLIC_API_BASE_URL=http://localhost:4000
 ```
+
+### 飞书机会推送
+
+配置 `FEISHU_WEBHOOK_URL` 后，服务端后台扫描发现真实可执行的 `OPEN` 信号时会自动推送飞书文本消息。
+
+推送条件：
+
+```text
+evaluation.status = OPEN
+depthOk = true
+FEISHU_WEBHOOK_URL 非空
+```
+
+默认消息包含 `FEISHU_KEYWORD=美股`，用于通过飞书自定义关键词安全校验。同一交易对默认 30 分钟内只推送一次，避免每 5 分钟扫描都重复刷屏；可以用 `FEISHU_NOTIFY_COOLDOWN_MS` 调整。单条消息最多推送 `FEISHU_NOTIFY_MAX_ITEMS` 个机会，默认 5 个。
 
 ## API
 

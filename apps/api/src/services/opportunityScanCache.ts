@@ -1,6 +1,7 @@
 import { config } from "../config/env.js";
 import type { OpportunityScan, OpportunitySnapshot } from "../types/market.js";
 import { BitgetClient } from "./bitgetClient.js";
+import { feishuOpportunityNotifier } from "./feishuNotifier.js";
 import { scanRTokenOpportunities } from "./opportunityScanner.js";
 
 type Subscriber = (snapshot: OpportunitySnapshot) => void;
@@ -82,6 +83,9 @@ export class OpportunityScanCache {
         bitget: this.bitget,
         limit: this.limit,
         notionalUsd: config.defaultNotionalUsd
+      });
+      void feishuOpportunityNotifier.notifyOpenOpportunities(this.latestScan).catch((error) => {
+        console.error("Failed to send Feishu opportunity alert", error);
       });
       this.completedAt = new Date().toISOString();
       this.lastError = null;
