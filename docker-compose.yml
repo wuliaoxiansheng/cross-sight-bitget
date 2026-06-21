@@ -1,0 +1,56 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: cross_sight
+      POSTGRES_USER: cross_sight
+      POSTGRES_PASSWORD: cross_sight
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cross_sight -d cross_sight"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    command: sh -c "npm run prisma:generate && npm run dev"
+    env_file:
+      - .env.example
+    environment:
+      DATABASE_URL: postgresql://cross_sight:cross_sight@postgres:5432/cross_sight?schema=public
+      CORS_ORIGIN: http://localhost:3000
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./apps/api:/app/apps/api
+      - ./tsconfig.base.json:/app/tsconfig.base.json
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    command: npm run dev
+    env_file:
+      - .env.example
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:4000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./apps/web:/app/apps/web
+      - ./tsconfig.base.json:/app/tsconfig.base.json
+    depends_on:
+      - api
+
+volumes:
+  postgres-data:
+

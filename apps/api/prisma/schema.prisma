@@ -1,0 +1,110 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OpportunityStatus {
+  OPEN
+  HOLD
+  CLOSE
+  WAIT
+}
+
+enum PaperTradeAction {
+  OPEN
+  HOLD
+  CLOSE
+}
+
+enum PaperTradeStatus {
+  OPEN
+  CLOSED
+}
+
+model MarketPair {
+  id              String   @id
+  name            String
+  spotSymbol      String
+  futuresSymbol   String
+  productType     String
+  spotFeeRate     Decimal  @db.Decimal(10, 8)
+  futuresFeeRate  Decimal  @db.Decimal(10, 8)
+  maxNotionalUsd  Decimal  @db.Decimal(18, 6)
+  enabled         Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  snapshots       MarketSnapshot[]
+  opportunities   BasisOpportunity[]
+  paperTrades     PaperTrade[]
+}
+
+model MarketSnapshot {
+  id            String   @id @default(cuid())
+  pairId        String
+  ts            DateTime @default(now())
+  spotBid       Decimal  @db.Decimal(18, 8)
+  spotAsk       Decimal  @db.Decimal(18, 8)
+  futuresBid    Decimal  @db.Decimal(18, 8)
+  futuresAsk    Decimal  @db.Decimal(18, 8)
+  markPrice     Decimal? @db.Decimal(18, 8)
+  indexPrice    Decimal? @db.Decimal(18, 8)
+  fundingRate   Decimal  @db.Decimal(18, 10)
+  fundingApr    Decimal  @db.Decimal(18, 10)
+  openInterest  Decimal? @db.Decimal(24, 8)
+
+  pair          MarketPair @relation(fields: [pairId], references: [id])
+
+  @@index([pairId, ts])
+}
+
+model BasisOpportunity {
+  id              String            @id @default(cuid())
+  pairId          String
+  ts              DateTime          @default(now())
+  status          OpportunityStatus
+  notionalUsd     Decimal           @db.Decimal(18, 6)
+  baseQuantity    Decimal           @db.Decimal(18, 8)
+  spotVwap        Decimal           @db.Decimal(18, 8)
+  futuresVwap     Decimal           @db.Decimal(18, 8)
+  entryBasis      Decimal           @db.Decimal(18, 10)
+  expectedEdge    Decimal           @db.Decimal(18, 10)
+  fundingRate     Decimal           @db.Decimal(18, 10)
+  fundingApr      Decimal           @db.Decimal(18, 10)
+  reason          String
+  narratorText    String
+
+  pair            MarketPair @relation(fields: [pairId], references: [id])
+
+  @@index([pairId, ts])
+  @@index([status, ts])
+}
+
+model PaperTrade {
+  id            String           @id @default(cuid())
+  pairId        String
+  action        PaperTradeAction
+  status        PaperTradeStatus
+  openedAt      DateTime         @default(now())
+  closedAt      DateTime?
+  spotPrice     Decimal          @db.Decimal(18, 8)
+  futuresPrice  Decimal          @db.Decimal(18, 8)
+  notionalUsd   Decimal          @db.Decimal(18, 6)
+  baseQuantity  Decimal          @db.Decimal(18, 8)
+  fundingPnl    Decimal          @default(0) @db.Decimal(18, 6)
+  basisPnl      Decimal          @default(0) @db.Decimal(18, 6)
+  feeCost       Decimal          @default(0) @db.Decimal(18, 6)
+  totalPnl      Decimal          @default(0) @db.Decimal(18, 6)
+  balanceAfter  Decimal          @db.Decimal(18, 6)
+  notes         String
+
+  pair          MarketPair @relation(fields: [pairId], references: [id])
+
+  @@index([pairId, openedAt])
+  @@index([status, openedAt])
+}
+
