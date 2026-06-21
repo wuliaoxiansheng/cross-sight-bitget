@@ -49,12 +49,26 @@ export type OpportunityScan = {
   items: OpportunityScanItem[];
 };
 
+export type OpportunitySnapshot = {
+  status: "warming" | "scanning" | "ready" | "stale" | "error";
+  latestScan: OpportunityScan | null;
+  scanning: boolean;
+  startedAt: string | null;
+  completedAt: string | null;
+  nextRunAt: string | null;
+  lastError: string | null;
+  intervalMs: number;
+  limit: number;
+};
+
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
+
 const now = new Date().toISOString();
 
-const sampleScan: OpportunityScan = {
+export const sampleScan: OpportunityScan = {
   generatedAt: now,
   notionalUsd: 5000,
-  requestedLimit: 12,
+  requestedLimit: 100,
   discoveredPairs: 6,
   scannedPairs: 6,
   openCount: 1,
@@ -140,11 +154,9 @@ const sampleScan: OpportunityScan = {
   ]
 };
 
-export async function getLiveScan(): Promise<OpportunityScan> {
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
-
+export async function getOpportunitySnapshot(): Promise<OpportunitySnapshot> {
   try {
-    const response = await fetch(`${apiBaseUrl}/opportunities/live-all?limit=12&notionalUsd=5000`, {
+    const response = await fetch(`${API_BASE_URL}/opportunities/snapshot`, {
       cache: "no-store"
     });
 
@@ -152,10 +164,20 @@ export async function getLiveScan(): Promise<OpportunityScan> {
       throw new Error(`API responded with ${response.status}`);
     }
 
-    const payload = (await response.json()) as { data: OpportunityScan };
+    const payload = (await response.json()) as { data: OpportunitySnapshot };
     return payload.data;
   } catch {
-    return sampleScan;
+    return {
+      status: "ready",
+      latestScan: sampleScan,
+      scanning: false,
+      startedAt: null,
+      completedAt: sampleScan.generatedAt,
+      nextRunAt: null,
+      lastError: "API unavailable, showing local sample data.",
+      intervalMs: 30_000,
+      limit: 100
+    };
   }
 }
 
@@ -190,4 +212,3 @@ export function formatUsd(value: number, compact = false): string {
     notation: compact ? "compact" : "standard"
   });
 }
-

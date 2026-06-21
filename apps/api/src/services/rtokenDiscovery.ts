@@ -3,6 +3,9 @@ import { BitgetClient } from "./bitgetClient.js";
 
 const FUTURES_FEE_RATE = 0.0006;
 const MAX_NOTIONAL_USD = 10_000;
+const MAX_DISCOVERY_LIMIT = 100;
+const MIN_PRICE_RATIO = 0.5;
+const MAX_PRICE_RATIO = 2;
 
 function toPairId(spotSymbol: string, futuresSymbol: string): string {
   return `${spotSymbol}_${futuresSymbol}`.toLowerCase();
@@ -32,6 +35,7 @@ function makePairConfig(input: {
 // We do not fuzzy match product names because similarly named locked/Earn
 // products can exist on Bitget and should never be included in this monitor.
 export async function discoverRTokenPairs(bitget: BitgetClient, limit: number): Promise<DiscoveredRTokenPair[]> {
+  const safeLimit = Math.max(1, Math.min(limit, MAX_DISCOVERY_LIMIT));
   const [symbols, spotTickers, futuresTickers] = await Promise.all([
     bitget.getSpotSymbols(),
     bitget.getSpotTickers(),
@@ -60,6 +64,11 @@ export async function discoverRTokenPairs(bitget: BitgetClient, limit: number): 
 
       if (!spotTicker || !futuresTicker) return null;
 
+      const priceRatio = spotTicker.lastPrice / futuresTicker.lastPrice;
+      if (!Number.isFinite(priceRatio) || priceRatio < MIN_PRICE_RATIO || priceRatio > MAX_PRICE_RATIO) {
+        return null;
+      }
+
       return {
         pair: makePairConfig({
           baseCoin: symbol.baseCoin,
@@ -74,6 +83,5 @@ export async function discoverRTokenPairs(bitget: BitgetClient, limit: number): 
     })
     .filter((pair): pair is DiscoveredRTokenPair => Boolean(pair))
     .sort((a, b) => b.spotVolumeUsd - a.spotVolumeUsd)
-    .slice(0, Math.max(1, Math.min(limit, 30)));
+    .slice(0, safeLimit);
 }
-

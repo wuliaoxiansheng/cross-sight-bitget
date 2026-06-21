@@ -3,6 +3,7 @@ import { config } from "../config/env.js";
 import { WATCHLIST } from "../data/pairs.js";
 import { evaluateBasisOpportunity } from "../services/basisEngine.js";
 import { BitgetClient } from "../services/bitgetClient.js";
+import { opportunityScanCache } from "../services/opportunityScanCache.js";
 import { scanRTokenOpportunities } from "../services/opportunityScanner.js";
 
 type LiveQuery = {
@@ -18,8 +19,45 @@ type LiveAllQuery = {
 export async function opportunityRoutes(app: FastifyInstance) {
   const bitget = new BitgetClient();
 
+  app.get("/opportunities/snapshot", async () => {
+    return {
+      data: opportunityScanCache.getSnapshot()
+    };
+  });
+
+  app.post("/opportunities/refresh", async () => {
+    return {
+      data: await opportunityScanCache.runOnce()
+    };
+  });
+
+  app.get("/opportunities/stream", async (_request, reply) => {
+    reply.raw.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no"
+    });
+
+    const send = (snapshot: ReturnType<typeof opportunityScanCache.getSnapshot>) => {
+      reply.raw.write(`event: snapshot\n`);
+      reply.raw.write(`data: ${JSON.stringify(snapshot)}\n\n`);
+    };
+
+    const unsubscribe = opportunityScanCache.subscribe(send);
+    const heartbeat = setInterval(() => {
+      reply.raw.write(`event: ping\n`);
+      reply.raw.write(`data: ${Date.now()}\n\n`);
+    }, 15_000);
+
+    _request.raw.on("close", () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+    });
+  });
+
   app.get<{ Querystring: LiveAllQuery }>("/opportunities/live-all", async (request) => {
-    const limit = Number(request.query.limit ?? 12);
+    const limit = Number(request.query.limit ?? 100);
     const notionalUsd = Number(request.query.notionalUsd ?? config.defaultNotionalUsd);
 
     return {

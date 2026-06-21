@@ -5,6 +5,7 @@ import { healthRoutes } from "./routes/health.js";
 import { opportunityRoutes } from "./routes/opportunities.js";
 import { pairRoutes } from "./routes/pairs.js";
 import { paperTradeRoutes } from "./routes/paperTrades.js";
+import { opportunityScanCache } from "./services/opportunityScanCache.js";
 
 const app = Fastify({
   logger: true
@@ -24,8 +25,8 @@ try {
     port: config.port,
     host: "0.0.0.0"
   });
+  opportunityScanCache.start();
 } catch (error) {
   app.log.error(error);
   process.exit(1);
 }
-

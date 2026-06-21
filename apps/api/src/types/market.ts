@@ -116,3 +116,15 @@ export type OpportunityScan = {
   errorCount: number;
   items: OpportunityScanItem[];
 };
+
+export type OpportunitySnapshot = {
+  status: "warming" | "scanning" | "ready" | "stale" | "error";
+  latestScan: OpportunityScan | null;
+  scanning: boolean;
+  startedAt: string | null;
+  completedAt: string | null;
+  nextRunAt: string | null;
+  lastError: string | null;
+  intervalMs: number;
+  limit: number;
+};

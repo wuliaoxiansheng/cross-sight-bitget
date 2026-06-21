@@ -3,6 +3,9 @@ import { evaluateBasisOpportunity } from "./basisEngine.js";
 import { BitgetClient } from "./bitgetClient.js";
 import { discoverRTokenPairs } from "./rtokenDiscovery.js";
 
+const MAX_SCAN_LIMIT = 100;
+const SCAN_CONCURRENCY = 10;
+
 function fallbackFunding(symbol: string, fundingRate: number): FundingRate {
   return {
     symbol,
@@ -31,15 +34,33 @@ function sortItems(a: OpportunityScanItem, b: OpportunityScanItem): number {
   return (b.evaluation?.expectedEdge ?? -999) - (a.evaluation?.expectedEdge ?? -999);
 }
 
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = [];
+
+  for (let index = 0; index < items.length; index += concurrency) {
+    const batch = items.slice(index, index + concurrency);
+    results.push(...(await Promise.all(batch.map(mapper))));
+  }
+
+  return results;
+}
+
 export async function scanRTokenOpportunities(input: {
   bitget: BitgetClient;
   limit: number;
   notionalUsd: number;
 }): Promise<OpportunityScan> {
-  const discoveredPairs = await discoverRTokenPairs(input.bitget, input.limit);
+  const safeLimit = Math.max(1, Math.min(input.limit, MAX_SCAN_LIMIT));
+  const discoveredPairs = await discoverRTokenPairs(input.bitget, safeLimit);
 
-  const items = await Promise.all(
-    discoveredPairs.map(async (discovered): Promise<OpportunityScanItem> => {
+  const items = await mapWithConcurrency(
+    discoveredPairs,
+    SCAN_CONCURRENCY,
+    async (discovered): Promise<OpportunityScanItem> => {
       try {
         const [spotBook, futuresBook, funding] = await Promise.all([
           input.bitget.getSpotOrderBook(discovered.pair.spotSymbol),
@@ -73,7 +94,7 @@ export async function scanRTokenOpportunities(input: {
           error: error instanceof Error ? error.message : "Unknown scan error"
         };
       }
-    })
+    }
   );
 
   const sortedItems = items.sort(sortItems);
@@ -85,7 +106,7 @@ export async function scanRTokenOpportunities(input: {
   return {
     generatedAt: new Date().toISOString(),
     notionalUsd: input.notionalUsd,
-    requestedLimit: input.limit,
+    requestedLimit: safeLimit,
     discoveredPairs: discoveredPairs.length,
     scannedPairs: sortedItems.length,
     openCount,
@@ -96,4 +117,3 @@ export async function scanRTokenOpportunities(input: {
     items: sortedItems
   };
 }
-
