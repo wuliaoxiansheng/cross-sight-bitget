@@ -2,6 +2,8 @@ import { config } from "../config/env.js";
 import type {
   BasisEvaluation,
   FundingRate,
+  HistoricalFundingRate,
+  FundingContext,
   FuturesTicker,
   MarketPairConfig,
   OrderBook,
@@ -98,6 +100,43 @@ export function calculateFundingApr(fundingRate: number, intervalHours: number):
   return fundingRate * (24 / intervalHours) * 365;
 }
 
+function buildFundingContext(funding: FundingRate, history: HistoricalFundingRate[] = []): FundingContext {
+  const sortedHistory = [...history].sort((a, b) => b.fundingTime - a.fundingTime);
+  const nonZeroHistory = sortedHistory.filter((row) => row.fundingRate !== 0);
+  const recentNonZero = nonZeroHistory[0] ?? null;
+  const maxRow =
+    sortedHistory.length > 0
+      ? sortedHistory.reduce((best, row) => (row.fundingRate > best.fundingRate ? row : best), sortedHistory[0])
+      : null;
+  const minRow =
+    sortedHistory.length > 0
+      ? sortedHistory.reduce((best, row) => (row.fundingRate < best.fundingRate ? row : best), sortedHistory[0])
+      : null;
+  const currentApr = calculateFundingApr(funding.fundingRate, funding.fundingIntervalHours);
+
+  return {
+    currentRate: funding.fundingRate,
+    intervalHours: funding.fundingIntervalHours,
+    currentApr,
+    recentNonZeroRate: recentNonZero?.fundingRate ?? null,
+    recentNonZeroApr: recentNonZero ? calculateFundingApr(recentNonZero.fundingRate, funding.fundingIntervalHours) : null,
+    recentNonZeroTime: recentNonZero?.fundingTime ?? null,
+    recentMaxRate: maxRow?.fundingRate ?? null,
+    recentMinRate: minRow?.fundingRate ?? null,
+    recentMaxApr: maxRow ? calculateFundingApr(maxRow.fundingRate, funding.fundingIntervalHours) : null,
+    recentMinApr: minRow ? calculateFundingApr(minRow.fundingRate, funding.fundingIntervalHours) : null,
+    recentWindowCount: sortedHistory.length,
+    state:
+      funding.fundingRate > 0
+        ? "active_positive"
+        : funding.fundingRate < 0
+          ? "active_negative"
+          : nonZeroHistory.length > 0
+            ? "zero_with_history"
+            : "zero"
+  };
+}
+
 export function evaluateBasisOpportunity(input: {
   pair: MarketPairConfig;
   notionalUsd: number;
@@ -106,6 +145,7 @@ export function evaluateBasisOpportunity(input: {
   spotBook: OrderBook;
   futuresBook: OrderBook;
   funding: FundingRate;
+  fundingHistory?: HistoricalFundingRate[];
 }): BasisEvaluation {
   const requestedNotional = Math.min(input.notionalUsd, input.pair.maxNotionalUsd);
   const spotBook = withTickerFallback({
@@ -136,6 +176,7 @@ export function evaluateBasisOpportunity(input: {
   const entryBasis = spotEntry.vwap > 0 && futuresEntry.vwap > 0 ? futuresEntry.vwap / spotEntry.vwap - 1 : 0;
   const closeBasis = spotExit.vwap > 0 && futuresExit.vwap > 0 ? spotExit.vwap / futuresExit.vwap - 1 : 0;
   const fundingApr = calculateFundingApr(input.funding.fundingRate, input.funding.fundingIntervalHours);
+  const fundingContext = buildFundingContext(input.funding, input.fundingHistory);
 
   // Fee drag is expressed as a percentage of notional, so it can be compared
   // directly with entry basis and funding edge.
@@ -183,6 +224,7 @@ export function evaluateBasisOpportunity(input: {
     expectedEdge: ensureFinite(expectedEdge),
     fundingRate: input.funding.fundingRate,
     fundingApr,
+    fundingContext,
     nextFundingTime: input.funding.nextUpdate,
     depthOk,
     reason,
@@ -231,7 +273,11 @@ function buildReason(input: {
   }
 
   if (input.status === "CLOSE") {
-    return "资金费率归零/转负，或现货退出价格已经优于合约回补价格，适合检查已有仓位是否平掉。";
+    if (input.fundingRate === 0) {
+      return "当前资金费率已经归零，不适合为了吃费率新开仓；如果已有仓位，应检查基差和退出成本。";
+    }
+
+    return "资金费率转负，或现货退出价格已经优于合约回补价格，适合检查已有仓位是否平掉。";
   }
 
   if (input.status === "OPEN") {

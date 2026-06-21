@@ -20,7 +20,8 @@ export function OpportunityTable({ scan }: { scan: OpportunityScan }) {
               <th>信号</th>
               <th>Edge</th>
               <th>开仓基差</th>
-              <th>费率年化</th>
+              <th>当前费率</th>
+              <th>最近非零</th>
               <th>现货 / 合约 VWAP</th>
               <th>成交额</th>
             </tr>
@@ -47,7 +48,26 @@ export function OpportunityTable({ scan }: { scan: OpportunityScan }) {
                     {evaluation ? formatPercent(evaluation.expectedEdge) : "n/a"}
                   </td>
                   <td>{evaluation ? formatPercent(evaluation.entryBasis) : "n/a"}</td>
-                  <td>{evaluation ? formatPercent(evaluation.fundingApr) : "n/a"}</td>
+                  <td>
+                    {evaluation ? (
+                      <div>
+                        <div>{formatPercent(evaluation.fundingRate, 4)}</div>
+                        <div className="pair-sub">APR {formatPercent(evaluation.fundingApr)}</div>
+                      </div>
+                    ) : (
+                      "n/a"
+                    )}
+                  </td>
+                  <td>
+                    {evaluation?.fundingContext.recentNonZeroRate != null ? (
+                      <div>
+                        <div>{formatPercent(evaluation.fundingContext.recentNonZeroRate, 4)}</div>
+                        <div className="pair-sub">APR {formatPercent(evaluation.fundingContext.recentNonZeroApr ?? 0)}</div>
+                      </div>
+                    ) : (
+                      <span className="muted">近 10 期无</span>
+                    )}
+                  </td>
                   <td>
                     {evaluation ? (
                       <span>

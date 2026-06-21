@@ -17,6 +17,10 @@ function fallbackFunding(symbol: string, fundingRate: number): FundingRate {
   };
 }
 
+async function fallbackFundingHistory() {
+  return [];
+}
+
 function sortItems(a: OpportunityScanItem, b: OpportunityScanItem): number {
   const rank = {
     OPEN: 0,
@@ -62,12 +66,15 @@ export async function scanRTokenOpportunities(input: {
     SCAN_CONCURRENCY,
     async (discovered): Promise<OpportunityScanItem> => {
       try {
-        const [spotBook, futuresBook, funding] = await Promise.all([
+        const [spotBook, futuresBook, funding, fundingHistory] = await Promise.all([
           input.bitget.getSpotOrderBook(discovered.pair.spotSymbol),
           input.bitget.getFuturesOrderBook(discovered.pair.futuresSymbol, discovered.pair.productType),
           input.bitget
             .getCurrentFundingRate(discovered.pair.futuresSymbol, discovered.pair.productType)
-            .catch(() => fallbackFunding(discovered.pair.futuresSymbol, discovered.futuresTicker.fundingRate))
+            .catch(() => fallbackFunding(discovered.pair.futuresSymbol, discovered.futuresTicker.fundingRate)),
+          input.bitget
+            .getFundingRateHistory(discovered.pair.futuresSymbol, discovered.pair.productType, 10)
+            .catch(fallbackFundingHistory)
         ]);
 
         const evaluation = evaluateBasisOpportunity({
@@ -77,7 +84,8 @@ export async function scanRTokenOpportunities(input: {
           spotBook,
           futuresTicker: discovered.futuresTicker,
           futuresBook,
-          funding
+          funding,
+          fundingHistory
         });
 
         return {

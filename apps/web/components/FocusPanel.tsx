@@ -55,8 +55,17 @@ export function FocusPanel({ scan }: { scan: OpportunityScan }) {
         </div>
         <div>
           <Clock3 size={16} />
-          <span>资金费率</span>
+          <span>当前费率 APR</span>
           <strong>{formatPercent(evaluation.fundingApr)}</strong>
+        </div>
+        <div>
+          <Clock3 size={16} />
+          <span>最近非零 APR</span>
+          <strong>
+            {evaluation.fundingContext.recentNonZeroApr != null
+              ? formatPercent(evaluation.fundingContext.recentNonZeroApr)
+              : "近 10 期无"}
+          </strong>
         </div>
       </div>
 
@@ -67,4 +76,3 @@ export function FocusPanel({ scan }: { scan: OpportunityScan }) {
     </section>
   );
 }
-

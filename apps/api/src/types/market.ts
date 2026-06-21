@@ -64,6 +64,27 @@ export type FundingRate = {
   maxFundingRate: number;
 };
 
+export type HistoricalFundingRate = {
+  symbol: string;
+  fundingRate: number;
+  fundingTime: number;
+};
+
+export type FundingContext = {
+  currentRate: number;
+  intervalHours: number;
+  currentApr: number;
+  recentNonZeroRate: number | null;
+  recentNonZeroApr: number | null;
+  recentNonZeroTime: number | null;
+  recentMaxRate: number | null;
+  recentMinRate: number | null;
+  recentMaxApr: number | null;
+  recentMinApr: number | null;
+  recentWindowCount: number;
+  state: "active_positive" | "active_negative" | "zero_with_history" | "zero";
+};
+
 export type OpportunityStatus = "OPEN" | "HOLD" | "CLOSE" | "WAIT";
 
 export type DiscoveredRTokenPair = {
@@ -89,6 +110,7 @@ export type BasisEvaluation = {
   expectedEdge: number;
   fundingRate: number;
   fundingApr: number;
+  fundingContext: FundingContext;
   nextFundingTime: number;
   depthOk: boolean;
   reason: string;

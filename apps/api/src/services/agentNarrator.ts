@@ -22,9 +22,25 @@ export function narrateBasisEvaluation(evaluation: BasisEvaluation): string {
   }
 
   if (evaluation.status === "CLOSE") {
-    return `${pair} 更像平仓窗口：当前资金费率为 ${pct(evaluation.fundingRate, 4)}，退出基差约 ${pct(
+    const closeLead =
+      evaluation.fundingRate === 0
+        ? "当前费率已归零"
+        : evaluation.fundingRate < 0
+          ? "当前费率已转负"
+          : "退出基差已经优于合约回补";
+    const actionText =
+      evaluation.fundingRate <= 0
+        ? "不建议为了吃费率新开仓，已有仓位再检查是否退出。"
+        : "如果此前已有基差仓位，应检查是否可以锁定退出收益。";
+    const historyText = evaluation.fundingContext.recentNonZeroRate
+      ? `最近一次非零费率为 ${pct(evaluation.fundingContext.recentNonZeroRate, 4)}，年化约 ${pct(
+          evaluation.fundingContext.recentNonZeroApr ?? 0
+        )}。`
+      : "最近 10 期也没有非零费率。";
+
+    return `${pair} ${closeLead}：当前资金费率为 ${pct(evaluation.fundingRate, 4)}，退出基差约 ${pct(
       evaluation.closeBasis
-    )}。如果此前已经买现货并空合约，应优先检查是否锁定利润。`;
+    )}。${historyText}${actionText}`;
   }
 
   if (evaluation.status === "HOLD") {
@@ -35,4 +51,3 @@ export function narrateBasisEvaluation(evaluation: BasisEvaluation): string {
 
   return `${pair} 暂无可执行套利信号：当前深度、基差或资金费率不足以覆盖手续费和滑点。`;
 }
-

@@ -204,6 +204,18 @@ items                每个 RToken/合约配对的扫描结果
 
 生产页面不直接依赖 `/live-all`，避免用户打开页面时同步等待所有 Bitget 请求。
 
+资金费率字段需要分开看：
+
+```text
+fundingRate                         当前单期资金费率，来自 Bitget current-fund-rate
+fundingApr                          当前资金费率折算年化
+fundingContext.recentNonZeroRate    最近 10 期历史资金费率里最新一条非零值
+fundingContext.recentNonZeroApr     最近非零费率折算年化
+fundingContext.state                active_positive / active_negative / zero_with_history / zero
+```
+
+如果 `fundingRate = 0`，不一定是接口坏了。当前很多 RToken 对应股票合约的实时资金费率确实会归零，但历史接口仍可能看到上一轮或更早的非零费率。页面会把这类标的标成“费率归零”，并显示“最近非零”作为复盘依据。
+
 ### 实时机会
 
 ```http
@@ -219,6 +231,7 @@ futuresShortVwap   做空永续合约的 VWAP
 entryBasis         开仓基差
 fundingRate        当前单期资金费率
 fundingApr         年化资金费率
+fundingContext     当前费率状态 + 最近 10 期历史费率摘要
 expectedEdge       基差 + 预计资金费率 - 手续费
 depthOk            当前订单簿是否能覆盖名义金额
 narratorText       Agent 解释文本

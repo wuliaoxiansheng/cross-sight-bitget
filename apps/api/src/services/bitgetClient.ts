@@ -1,6 +1,7 @@
 import { config } from "../config/env.js";
 import type {
   FundingRate,
+  HistoricalFundingRate,
   FuturesTicker,
   OrderBook,
   OrderBookLevel,
@@ -182,5 +183,17 @@ export class BitgetClient {
       minFundingRate: toNumber(funding.minFundingRate),
       maxFundingRate: toNumber(funding.maxFundingRate)
     };
+  }
+
+  async getFundingRateHistory(symbol: string, productType: string, pageSize = 10): Promise<HistoricalFundingRate[]> {
+    const data = await this.get<Array<Record<string, unknown>>>(
+      `/api/v2/mix/market/history-fund-rate?symbol=${symbol}&productType=${productType}&pageSize=${pageSize}`
+    );
+
+    return data.map((row) => ({
+      symbol,
+      fundingRate: toNumber(row.fundingRate),
+      fundingTime: toNumber(row.fundingTime)
+    }));
   }
 }

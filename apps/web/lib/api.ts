@@ -1,5 +1,20 @@
 export type SignalStatus = "OPEN" | "HOLD" | "CLOSE" | "WAIT";
 
+export type FundingContext = {
+  currentRate: number;
+  intervalHours: number;
+  currentApr: number;
+  recentNonZeroRate: number | null;
+  recentNonZeroApr: number | null;
+  recentNonZeroTime: number | null;
+  recentMaxRate: number | null;
+  recentMinRate: number | null;
+  recentMaxApr: number | null;
+  recentMinApr: number | null;
+  recentWindowCount: number;
+  state: "active_positive" | "active_negative" | "zero_with_history" | "zero";
+};
+
 export type BasisEvaluation = {
   pair: {
     id: string;
@@ -21,6 +36,7 @@ export type BasisEvaluation = {
   expectedEdge: number;
   fundingRate: number;
   fundingApr: number;
+  fundingContext: FundingContext;
   nextFundingTime: number;
   depthOk: boolean;
   reason: string;
@@ -106,6 +122,20 @@ export const sampleScan: OpportunityScan = {
         expectedEdge: 0.00863,
         fundingRate: 0.00023,
         fundingApr: 0.252,
+        fundingContext: {
+          currentRate: 0.00023,
+          intervalHours: 8,
+          currentApr: 0.252,
+          recentNonZeroRate: 0.00023,
+          recentNonZeroApr: 0.252,
+          recentNonZeroTime: Date.now() - 8 * 60 * 60 * 1000,
+          recentMaxRate: 0.00023,
+          recentMinRate: 0,
+          recentMaxApr: 0.252,
+          recentMinApr: 0,
+          recentWindowCount: 10,
+          state: "active_positive"
+        },
         nextFundingTime: Date.now() + 60 * 60 * 1000,
         depthOk: true,
         reason: "合约相对 RToken 现货存在溢价，且资金费率为正，扣除手续费后仍达到开仓阈值。",
@@ -143,6 +173,20 @@ export const sampleScan: OpportunityScan = {
         expectedEdge: -0.0027,
         fundingRate: 0,
         fundingApr: 0,
+        fundingContext: {
+          currentRate: 0,
+          intervalHours: 8,
+          currentApr: 0,
+          recentNonZeroRate: 0.000009,
+          recentNonZeroApr: 0.009855,
+          recentNonZeroTime: Date.now() - 24 * 60 * 60 * 1000,
+          recentMaxRate: 0.000009,
+          recentMinRate: 0,
+          recentMaxApr: 0.009855,
+          recentMinApr: 0,
+          recentWindowCount: 10,
+          state: "zero_with_history"
+        },
         nextFundingTime: Date.now() + 60 * 60 * 1000,
         depthOk: false,
         reason: "订单簿深度不足，当前名义金额无法完整成交。",
@@ -186,7 +230,7 @@ export function statusLabel(item: OpportunityScanItem): string {
   if (!item.evaluation) return "接口异常";
   if (!item.evaluation.depthOk) return "深度不足";
   if (item.evaluation.status === "OPEN") return "有机会";
-  if (item.evaluation.status === "CLOSE") return "适合平仓";
+  if (item.evaluation.status === "CLOSE") return item.evaluation.fundingRate === 0 ? "费率归零" : "适合平仓";
   return "无机会";
 }
 

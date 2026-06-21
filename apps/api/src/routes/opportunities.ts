@@ -83,12 +83,13 @@ export async function opportunityRoutes(app: FastifyInstance) {
     const notionalUsd = Number(request.query.notionalUsd ?? config.defaultNotionalUsd);
     const safeNotional = Number.isFinite(notionalUsd) ? notionalUsd : config.defaultNotionalUsd;
 
-    const [spotTicker, spotBook, futuresTicker, futuresBook, funding] = await Promise.all([
+    const [spotTicker, spotBook, futuresTicker, futuresBook, funding, fundingHistory] = await Promise.all([
       bitget.getSpotTicker(pair.spotSymbol),
       bitget.getSpotOrderBook(pair.spotSymbol),
       bitget.getFuturesTicker(pair.futuresSymbol, pair.productType),
       bitget.getFuturesOrderBook(pair.futuresSymbol, pair.productType),
-      bitget.getCurrentFundingRate(pair.futuresSymbol, pair.productType)
+      bitget.getCurrentFundingRate(pair.futuresSymbol, pair.productType),
+      bitget.getFundingRateHistory(pair.futuresSymbol, pair.productType, 10).catch(() => [])
     ]);
 
     const evaluation = evaluateBasisOpportunity({
@@ -98,7 +99,8 @@ export async function opportunityRoutes(app: FastifyInstance) {
       spotBook,
       futuresTicker,
       futuresBook,
-      funding
+      funding,
+      fundingHistory
     });
 
     return {

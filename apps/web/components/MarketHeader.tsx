@@ -6,7 +6,7 @@ export function MarketHeader({ scan }: { scan: OpportunityScan }) {
   const headline = hasOpen ? `发现 ${scan.openCount} 个可开仓机会` : "当前无明确开仓机会";
   const subline =
     scan.closeCount > 0
-      ? `${scan.closeCount} 个标的更像平仓窗口，先看是否已有仓位需要退出。`
+      ? `${scan.closeCount} 个标的当前费率归零或转负，不适合为了吃费率新开仓。`
       : "扫描结果以深度、资金费率和扣费后 edge 为准，不用 last price 做判断。";
 
   return (
@@ -32,7 +32,7 @@ export function MarketHeader({ scan }: { scan: OpportunityScan }) {
           <ShieldAlert size={18} />
           <div>
             <strong>{scan.closeCount}</strong>
-            <span>适合平仓</span>
+            <span>费率归零</span>
           </div>
         </div>
         <div className="stat-tile stat-warn">
@@ -53,4 +53,3 @@ export function MarketHeader({ scan }: { scan: OpportunityScan }) {
     </header>
   );
 }
-
