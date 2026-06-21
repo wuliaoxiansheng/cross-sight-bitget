@@ -6,9 +6,9 @@ export type AppConfig = {
   defaultNotionalUsd: number;
   openEdgeThreshold: number;
   fundingPeriodsToPrice: number;
-  // Optional shared secret. When set, the heavy Bitget-fanout endpoints
-  // (/opportunities/refresh, /live-all, /live, /paper-trades/preview) require a
-  // matching `x-api-token` header. Empty string = open (local dev default).
+  // Optional shared secret. When set, manual heavy endpoints
+  // (/opportunities/refresh, /live-all, /paper-trades/preview) require a
+  // matching `x-api-token` header. /opportunities/live stays browser-callable.
   apiToken: string;
   // Minimum spacing between on-demand full scans triggered over HTTP, to avoid
   // hammering Bitget (and getting the egress IP rate-limited/banned).
@@ -38,4 +38,3 @@ export const config: AppConfig = {
   apiToken: process.env.API_TOKEN ?? "",
   liveScanMinIntervalMs: numberFromEnv("LIVE_SCAN_MIN_INTERVAL_MS", 10_000)
 };
-

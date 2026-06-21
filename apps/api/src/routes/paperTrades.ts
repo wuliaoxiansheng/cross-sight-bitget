@@ -26,41 +26,41 @@ export async function paperTradeRoutes(app: FastifyInstance) {
     "/paper-trades/preview",
     { preHandler: requireApiToken },
     async (request) => {
-    const pairId = request.query.pairId ?? WATCHLIST[0]?.id;
-    const pair = WATCHLIST.find((item) => item.id === pairId && item.enabled);
+      const pairId = request.query.pairId ?? WATCHLIST[0]?.id;
+      const pair = WATCHLIST.find((item) => item.id === pairId && item.enabled);
 
-    if (!pair) {
+      if (!pair) {
+        return {
+          error: "PAIR_NOT_FOUND",
+          message: `No enabled market pair found for ${pairId}`
+        };
+      }
+
+      const notionalUsd = Number(request.query.notionalUsd ?? config.defaultNotionalUsd);
+      const startingBalance = Number(request.query.balance ?? 10_000);
+
+      const [spotTicker, spotBook, futuresTicker, futuresBook, funding] = await Promise.all([
+        bitget.getSpotTicker(pair.spotSymbol),
+        bitget.getSpotOrderBook(pair.spotSymbol),
+        bitget.getFuturesTicker(pair.futuresSymbol, pair.productType),
+        bitget.getFuturesOrderBook(pair.futuresSymbol, pair.productType),
+        bitget.getCurrentFundingRate(pair.futuresSymbol, pair.productType)
+      ]);
+
+      const evaluation = evaluateBasisOpportunity({
+        pair,
+        notionalUsd: Number.isFinite(notionalUsd) ? notionalUsd : config.defaultNotionalUsd,
+        spotTicker,
+        spotBook,
+        futuresTicker,
+        futuresBook,
+        funding
+      });
+
       return {
-        error: "PAIR_NOT_FOUND",
-        message: `No enabled market pair found for ${pairId}`
+        data: buildPaperTradePreview(evaluation, Number.isFinite(startingBalance) ? startingBalance : 10_000),
+        evaluation
       };
     }
-
-    const notionalUsd = Number(request.query.notionalUsd ?? config.defaultNotionalUsd);
-    const startingBalance = Number(request.query.balance ?? 10_000);
-
-    const [spotTicker, spotBook, futuresTicker, futuresBook, funding] = await Promise.all([
-      bitget.getSpotTicker(pair.spotSymbol),
-      bitget.getSpotOrderBook(pair.spotSymbol),
-      bitget.getFuturesTicker(pair.futuresSymbol, pair.productType),
-      bitget.getFuturesOrderBook(pair.futuresSymbol, pair.productType),
-      bitget.getCurrentFundingRate(pair.futuresSymbol, pair.productType)
-    ]);
-
-    const evaluation = evaluateBasisOpportunity({
-      pair,
-      notionalUsd: Number.isFinite(notionalUsd) ? notionalUsd : config.defaultNotionalUsd,
-      spotTicker,
-      spotBook,
-      futuresTicker,
-      futuresBook,
-      funding
-    });
-
-    return {
-      data: buildPaperTradePreview(evaluation, Number.isFinite(startingBalance) ? startingBalance : 10_000),
-      evaluation
-    };
-  });
+  );
 }
-

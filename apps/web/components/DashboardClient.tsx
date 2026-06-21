@@ -141,15 +141,21 @@ export function DashboardClient({ initialSnapshot }: { initialSnapshot: Opportun
   }, [scan?.notionalUsd, selectedItem]);
 
   if (!scan) {
+    const isError = snapshot.status === "error";
+
     return (
       <main className="shell">
         <section className="hero hero-idle">
           <div>
             <div className="eyebrow">Cross Sight · Bitget RToken Monitor</div>
-            <h1>后台正在扫描</h1>
-            <p className="subtitle">服务端正在逐批读取 Bitget 热门 RToken、订单簿和资金费率。完成后页面会自动更新。</p>
+            <h1>{isError ? "行情 API 暂不可用" : "后台正在扫描"}</h1>
+            <p className="subtitle">
+              {isError
+                ? (snapshot.lastError ?? "当前没有可展示的实时行情数据。")
+                : "服务端正在逐批读取 Bitget 热门 RToken、订单簿和资金费率。完成后页面会自动更新。"}
+            </p>
           </div>
-          <div className="hero-status">扫描中</div>
+          <div className="hero-status">{isError ? "异常" : "扫描中"}</div>
         </section>
       </main>
     );
