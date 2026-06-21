@@ -1,3 +1,5 @@
+export type SignalStatus = "OPEN" | "HOLD" | "CLOSE" | "WAIT";
+
 export type BasisEvaluation = {
   pair: {
     id: string;
@@ -5,7 +7,7 @@ export type BasisEvaluation = {
     spotSymbol: string;
     futuresSymbol: string;
   };
-  status: "OPEN" | "HOLD" | "CLOSE" | "WAIT";
+  status: SignalStatus;
   notionalUsd: number;
   baseQuantity: number;
   spotBuyVwap: number;
@@ -26,40 +28,123 @@ export type BasisEvaluation = {
   timestamp: string;
 };
 
-const sampleEvaluation: BasisEvaluation = {
-  pair: {
-    id: "rspcx_spcx_perp",
-    name: "rSPCX spot / SPCX USDT perpetual",
-    spotSymbol: "RSPCXUSDT",
-    futuresSymbol: "SPCXUSDT"
-  },
-  status: "CLOSE",
-  notionalUsd: 5000,
-  baseQuantity: 27.24,
-  spotBuyVwap: 183.42,
-  futuresShortVwap: 181.58,
-  spotSellVwap: 183.12,
-  futuresCoverVwap: 181.64,
-  entryBasis: -0.0101,
-  closeBasis: 0.0081,
-  feeDrag: 0.0016,
-  expectedFundingEdge: 0,
-  expectedEdge: -0.0117,
-  fundingRate: 0,
-  fundingApr: 0,
-  nextFundingTime: Date.now() + 60 * 60 * 1000,
-  depthOk: true,
-  reason: "资金费率归零/转负，或现货退出价格已经优于合约回补价格，适合检查已有仓位是否平掉。",
-  narratorText:
-    "RSPCXUSDT / SPCXUSDT 更像平仓窗口：当前资金费率为 0.0000%，退出基差约 0.81%。如果此前已经买现货并空合约，应优先检查是否锁定利润。",
-  timestamp: new Date().toISOString()
+export type OpportunityScanItem = {
+  pair: BasisEvaluation["pair"];
+  spotVolumeUsd: number;
+  evaluation: BasisEvaluation | null;
+  error: string | null;
 };
 
-export async function getLiveEvaluation(): Promise<BasisEvaluation> {
+export type OpportunityScan = {
+  generatedAt: string;
+  notionalUsd: number;
+  requestedLimit: number;
+  discoveredPairs: number;
+  scannedPairs: number;
+  openCount: number;
+  closeCount: number;
+  noOpportunityCount: number;
+  depthIssueCount: number;
+  errorCount: number;
+  items: OpportunityScanItem[];
+};
+
+const now = new Date().toISOString();
+
+const sampleScan: OpportunityScan = {
+  generatedAt: now,
+  notionalUsd: 5000,
+  requestedLimit: 12,
+  discoveredPairs: 6,
+  scannedPairs: 6,
+  openCount: 1,
+  closeCount: 1,
+  noOpportunityCount: 4,
+  depthIssueCount: 2,
+  errorCount: 0,
+  items: [
+    {
+      pair: {
+        id: "rspcxusdt_spcxusdt",
+        name: "rSPCX spot / SPCXUSDT perpetual",
+        spotSymbol: "RSPCXUSDT",
+        futuresSymbol: "SPCXUSDT"
+      },
+      spotVolumeUsd: 3_980_000,
+      evaluation: {
+        pair: {
+          id: "rspcxusdt_spcxusdt",
+          name: "rSPCX spot / SPCXUSDT perpetual",
+          spotSymbol: "RSPCXUSDT",
+          futuresSymbol: "SPCXUSDT"
+        },
+        status: "OPEN",
+        notionalUsd: 5000,
+        baseQuantity: 27.84,
+        spotBuyVwap: 179.63,
+        futuresShortVwap: 181.43,
+        spotSellVwap: 179.2,
+        futuresCoverVwap: 181.55,
+        entryBasis: 0.0100,
+        closeBasis: -0.013,
+        feeDrag: 0.0016,
+        expectedFundingEdge: 0.00023,
+        expectedEdge: 0.00863,
+        fundingRate: 0.00023,
+        fundingApr: 0.252,
+        nextFundingTime: Date.now() + 60 * 60 * 1000,
+        depthOk: true,
+        reason: "合约相对 RToken 现货存在溢价，且资金费率为正，扣除手续费后仍达到开仓阈值。",
+        narratorText: "RSPCXUSDT / SPCXUSDT 出现费率基差机会：买现货并空合约仍有正 edge。",
+        timestamp: now
+      },
+      error: null
+    },
+    {
+      pair: {
+        id: "rqqqusdt_qqqusdt",
+        name: "rQQQ spot / QQQUSDT perpetual",
+        spotSymbol: "RQQQUSDT",
+        futuresSymbol: "QQQUSDT"
+      },
+      spotVolumeUsd: 1_607_361_209,
+      evaluation: {
+        pair: {
+          id: "rqqqusdt_qqqusdt",
+          name: "rQQQ spot / QQQUSDT perpetual",
+          spotSymbol: "RQQQUSDT",
+          futuresSymbol: "QQQUSDT"
+        },
+        status: "WAIT",
+        notionalUsd: 5000,
+        baseQuantity: 6.75,
+        spotBuyVwap: 739.92,
+        futuresShortVwap: 739.1,
+        spotSellVwap: 739.68,
+        futuresCoverVwap: 739.3,
+        entryBasis: -0.0011,
+        closeBasis: 0.0005,
+        feeDrag: 0.0016,
+        expectedFundingEdge: 0,
+        expectedEdge: -0.0027,
+        fundingRate: 0,
+        fundingApr: 0,
+        nextFundingTime: Date.now() + 60 * 60 * 1000,
+        depthOk: false,
+        reason: "订单簿深度不足，当前名义金额无法完整成交。",
+        narratorText: "RQQQUSDT / QQQUSDT 暂无可执行套利信号。",
+        timestamp: now
+      },
+      error: null
+    }
+  ]
+};
+
+export async function getLiveScan(): Promise<OpportunityScan> {
   const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
   try {
-    const response = await fetch(`${apiBaseUrl}/opportunities/live?pairId=rspcx_spcx_perp&notionalUsd=5000`, {
+    const response = await fetch(`${apiBaseUrl}/opportunities/live-all?limit=12&notionalUsd=5000`, {
       cache: "no-store"
     });
 
@@ -67,24 +152,42 @@ export async function getLiveEvaluation(): Promise<BasisEvaluation> {
       throw new Error(`API responded with ${response.status}`);
     }
 
-    const payload = (await response.json()) as { data: BasisEvaluation };
+    const payload = (await response.json()) as { data: OpportunityScan };
     return payload.data;
   } catch {
-    // The page remains useful before the API is running. The fallback mirrors
-    // the real payload shape so UI work and demo recording can continue.
-    return sampleEvaluation;
+    return sampleScan;
   }
 }
 
+export function statusLabel(item: OpportunityScanItem): string {
+  if (item.error) return "接口异常";
+  if (!item.evaluation) return "接口异常";
+  if (!item.evaluation.depthOk) return "深度不足";
+  if (item.evaluation.status === "OPEN") return "有机会";
+  if (item.evaluation.status === "CLOSE") return "适合平仓";
+  return "无机会";
+}
+
+export function statusTone(item: OpportunityScanItem): "good" | "bad" | "warn" | "muted" {
+  if (item.error || !item.evaluation) return "bad";
+  if (!item.evaluation.depthOk) return "warn";
+  if (item.evaluation.status === "OPEN") return "good";
+  if (item.evaluation.status === "CLOSE") return "bad";
+  return "muted";
+}
+
 export function formatPercent(value: number, digits = 2): string {
+  if (!Number.isFinite(value)) return "n/a";
   return `${(value * 100).toFixed(digits)}%`;
 }
 
-export function formatUsd(value: number): string {
+export function formatUsd(value: number, compact = false): string {
+  if (!Number.isFinite(value)) return "n/a";
   return value.toLocaleString("en-US", {
     style: "currency",
     currency: "USD",
-    maximumFractionDigits: 2
+    maximumFractionDigits: compact ? 1 : 2,
+    notation: compact ? "compact" : "standard"
   });
 }
 

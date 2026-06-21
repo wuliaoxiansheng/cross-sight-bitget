@@ -3,14 +3,33 @@ import { config } from "../config/env.js";
 import { WATCHLIST } from "../data/pairs.js";
 import { evaluateBasisOpportunity } from "../services/basisEngine.js";
 import { BitgetClient } from "../services/bitgetClient.js";
+import { scanRTokenOpportunities } from "../services/opportunityScanner.js";
 
 type LiveQuery = {
   pairId?: string;
   notionalUsd?: string;
 };
 
+type LiveAllQuery = {
+  limit?: string;
+  notionalUsd?: string;
+};
+
 export async function opportunityRoutes(app: FastifyInstance) {
   const bitget = new BitgetClient();
+
+  app.get<{ Querystring: LiveAllQuery }>("/opportunities/live-all", async (request) => {
+    const limit = Number(request.query.limit ?? 12);
+    const notionalUsd = Number(request.query.notionalUsd ?? config.defaultNotionalUsd);
+
+    return {
+      data: await scanRTokenOpportunities({
+        bitget,
+        limit: Number.isFinite(limit) ? limit : 12,
+        notionalUsd: Number.isFinite(notionalUsd) ? notionalUsd : config.defaultNotionalUsd
+      })
+    };
+  });
 
   app.get<{ Querystring: LiveQuery }>("/opportunities/live", async (request) => {
     const pairId = request.query.pairId ?? WATCHLIST[0]?.id;
@@ -54,4 +73,3 @@ export async function opportunityRoutes(app: FastifyInstance) {
     };
   });
 }
-

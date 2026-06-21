@@ -10,6 +10,16 @@ export type MarketPairConfig = {
   enabled: boolean;
 };
 
+export type SpotSymbolConfig = {
+  symbol: string;
+  baseCoin: string;
+  quoteCoin: string;
+  status: string;
+  takerFeeRate: number;
+  makerFeeRate: number;
+  minTradeUsdt: number;
+};
+
 export type OrderBookLevel = {
   price: number;
   size: number;
@@ -56,6 +66,13 @@ export type FundingRate = {
 
 export type OpportunityStatus = "OPEN" | "HOLD" | "CLOSE" | "WAIT";
 
+export type DiscoveredRTokenPair = {
+  pair: MarketPairConfig;
+  spotTicker: SpotTicker;
+  futuresTicker: FuturesTicker;
+  spotVolumeUsd: number;
+};
+
 export type BasisEvaluation = {
   pair: MarketPairConfig;
   status: OpportunityStatus;
@@ -79,3 +96,23 @@ export type BasisEvaluation = {
   timestamp: string;
 };
 
+export type OpportunityScanItem = {
+  pair: MarketPairConfig;
+  spotVolumeUsd: number;
+  evaluation: BasisEvaluation | null;
+  error: string | null;
+};
+
+export type OpportunityScan = {
+  generatedAt: string;
+  notionalUsd: number;
+  requestedLimit: number;
+  discoveredPairs: number;
+  scannedPairs: number;
+  openCount: number;
+  closeCount: number;
+  noOpportunityCount: number;
+  depthIssueCount: number;
+  errorCount: number;
+  items: OpportunityScanItem[];
+};

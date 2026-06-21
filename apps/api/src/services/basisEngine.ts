@@ -65,6 +65,34 @@ function consumeByBase(levels: OrderBookLevel[], baseTarget: number): FillResult
   };
 }
 
+function ensureFinite(value: number): number {
+  return Number.isFinite(value) ? value : 0;
+}
+
+function withTickerFallback(input: {
+  book: OrderBook;
+  bidPrice: number;
+  bidSize: number;
+  askPrice: number;
+  askSize: number;
+}): OrderBook {
+  return {
+    bids:
+      input.book.bids.length > 0
+        ? input.book.bids
+        : input.bidPrice > 0 && input.bidSize > 0
+          ? [{ price: input.bidPrice, size: input.bidSize }]
+          : [],
+    asks:
+      input.book.asks.length > 0
+        ? input.book.asks
+        : input.askPrice > 0 && input.askSize > 0
+          ? [{ price: input.askPrice, size: input.askSize }]
+          : [],
+    timestamp: input.book.timestamp
+  };
+}
+
 export function calculateFundingApr(fundingRate: number, intervalHours: number): number {
   if (intervalHours <= 0) return 0;
   return fundingRate * (24 / intervalHours) * 365;
@@ -80,19 +108,33 @@ export function evaluateBasisOpportunity(input: {
   funding: FundingRate;
 }): BasisEvaluation {
   const requestedNotional = Math.min(input.notionalUsd, input.pair.maxNotionalUsd);
+  const spotBook = withTickerFallback({
+    book: input.spotBook,
+    bidPrice: input.spotTicker.bidPrice,
+    bidSize: input.spotTicker.bidSize,
+    askPrice: input.spotTicker.askPrice,
+    askSize: input.spotTicker.askSize
+  });
+  const futuresBook = withTickerFallback({
+    book: input.futuresBook,
+    bidPrice: input.futuresTicker.bidPrice,
+    bidSize: Number.POSITIVE_INFINITY,
+    askPrice: input.futuresTicker.askPrice,
+    askSize: Number.POSITIVE_INFINITY
+  });
 
   // Entry: buy the RToken spot leg from asks, then short the same base size
   // on the perpetual leg by selling into futures bids.
-  const spotEntry = consumeByQuote(input.spotBook.asks, requestedNotional);
-  const futuresEntry = consumeByBase(input.futuresBook.bids, spotEntry.baseQuantity);
+  const spotEntry = consumeByQuote(spotBook.asks, requestedNotional);
+  const futuresEntry = consumeByBase(futuresBook.bids, spotEntry.baseQuantity);
 
   // Exit estimate: sell the spot leg into bids, then buy back the perpetual
   // from asks. This tells us whether an existing basis trade should close.
-  const spotExit = consumeByBase(input.spotBook.bids, spotEntry.baseQuantity);
-  const futuresExit = consumeByBase(input.futuresBook.asks, spotEntry.baseQuantity);
+  const spotExit = consumeByBase(spotBook.bids, spotEntry.baseQuantity);
+  const futuresExit = consumeByBase(futuresBook.asks, spotEntry.baseQuantity);
 
-  const entryBasis = futuresEntry.vwap / spotEntry.vwap - 1;
-  const closeBasis = spotExit.vwap / futuresExit.vwap - 1;
+  const entryBasis = spotEntry.vwap > 0 && futuresEntry.vwap > 0 ? futuresEntry.vwap / spotEntry.vwap - 1 : 0;
+  const closeBasis = spotExit.vwap > 0 && futuresExit.vwap > 0 ? spotExit.vwap / futuresExit.vwap - 1 : 0;
   const fundingApr = calculateFundingApr(input.funding.fundingRate, input.funding.fundingIntervalHours);
 
   // Fee drag is expressed as a percentage of notional, so it can be compared
@@ -100,7 +142,13 @@ export function evaluateBasisOpportunity(input: {
   const feeDrag = input.pair.spotFeeRate + input.pair.futuresFeeRate;
   const expectedFundingEdge = input.funding.fundingRate * config.fundingPeriodsToPrice;
   const expectedEdge = entryBasis + expectedFundingEdge - feeDrag;
-  const depthOk = spotEntry.filled && futuresEntry.filled && spotExit.filled && futuresExit.filled;
+  const depthOk =
+    spotEntry.filled &&
+    futuresEntry.filled &&
+    spotExit.filled &&
+    futuresExit.filled &&
+    spotEntry.vwap > 0 &&
+    futuresEntry.vwap > 0;
 
   const status = classifySignal({
     depthOk,
@@ -128,11 +176,11 @@ export function evaluateBasisOpportunity(input: {
     futuresShortVwap: futuresEntry.vwap,
     spotSellVwap: spotExit.vwap,
     futuresCoverVwap: futuresExit.vwap,
-    entryBasis,
-    closeBasis,
+    entryBasis: ensureFinite(entryBasis),
+    closeBasis: ensureFinite(closeBasis),
     feeDrag,
     expectedFundingEdge,
-    expectedEdge,
+    expectedEdge: ensureFinite(expectedEdge),
     fundingRate: input.funding.fundingRate,
     fundingApr,
     nextFundingTime: input.funding.nextUpdate,
@@ -196,4 +244,3 @@ function buildReason(input: {
 
   return "当前基差、资金费率和费用结构不足以覆盖交易成本。";
 }
-

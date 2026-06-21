@@ -1,12 +1,12 @@
 # Cross Sight · RToken Basis Sentry
 
-Bitget RToken 费率基差监控工具。第一版聚焦 `RSPCXUSDT` 现货和 `SPCXUSDT` USDT 永续合约，监控现货/合约基差、资金费率、订单簿深度，并生成 paper trading 预览。
+Bitget RToken 费率基差监控工具。当前版本会自动发现 Bitget 热门 RToken 现货，并严格映射到同名 USDT 永续合约，例如 `RSPYUSDT` → `SPYUSDT`、`RSPCXUSDT` → `SPCXUSDT`，监控现货/合约基差、资金费率、订单簿深度，并生成 paper trading 预览。
 
 ## 项目定位
 
 这个项目不是自动下单机器人，MVP 只做只读行情和模拟记录：
 
-- 发现 RToken 现货与合约之间的可成交基差。
+- 自动扫描热门 RToken 现货与合约之间的可成交基差。
 - 监控资金费率是否足以覆盖手续费和滑点。
 - 用订单簿 VWAP 估算 5,000-10,000 USDT 规模是否真的能成交。
 - 输出 `OPEN` / `HOLD` / `CLOSE` / `WAIT` 信号。
@@ -15,9 +15,9 @@ Bitget RToken 费率基差监控工具。第一版聚焦 `RSPCXUSDT` 现货和 `
 核心策略：
 
 ```text
-当 RSPCX 现货价格低于 SPCX 永续合约，且空合约可收正资金费率：
-  买入 RSPCXUSDT 现货
-  做空 SPCXUSDT 永续合约
+当 RToken 现货价格低于对应永续合约，且空合约可收正资金费率：
+  买入 RToken 现货
+  做空同名 USDT 永续合约
   收取资金费率并等待基差回归
 
 当资金费率归零/转负，或现货价格反超合约：
@@ -140,18 +140,35 @@ GET /health
 GET /pairs
 ```
 
-当前只配置白名单：
+接口会从 Bitget public API 自动发现热门 RToken，并只保留能严格配对到 USDT 永续合约的标的。
+
+映射规则：
 
 ```json
 {
-  "id": "rspcx_spcx_perp",
-  "spotSymbol": "RSPCXUSDT",
-  "futuresSymbol": "SPCXUSDT",
+  "spotSymbol": "RSPYUSDT",
+  "baseCoin": "rSPY",
+  "futuresSymbol": "SPYUSDT",
   "productType": "USDT-FUTURES"
 }
 ```
 
-不要用 `SPCX` 关键词做自动匹配。Bitget 上存在名称相近但性质不同的产品，尤其要避免误碰锁仓、债券型或 Earn 类资产。
+不要用关键词做模糊匹配。Bitget 上存在名称相近但性质不同的产品，尤其要避免误碰锁仓、债券型或 Earn 类资产。
+
+### 多币对实时机会扫描
+
+```http
+GET /opportunities/live-all?limit=12&notionalUsd=5000
+```
+
+返回字段重点：
+
+```text
+openCount            有开仓机会的数量
+closeCount           更像平仓窗口的数量
+depthIssueCount      深度不足的数量
+items                每个 RToken/合约配对的扫描结果
+```
 
 ### 实时机会
 
@@ -269,4 +286,3 @@ timestamp,pair,action,spot_price,futures_price,notional_usd,base_quantity,balanc
 3. 增加 WebSocket/SSE，让前端实时刷新。
 4. 接入 Bitget Agent Hub 读取账户和模拟盘。
 5. 增加 Python worker 做历史回测和更复杂的统计分析。
-
