@@ -185,6 +185,14 @@ GET /opportunities/stream
 
 每当后台扫描状态或结果变化时，服务端推送 `snapshot` 事件，页面自动更新。
 
+前端工作台支持两类交互：
+
+```text
+搜索        输入 RSPCX、SPCXUSDT、COIN、NVDA 等关键词，本地即时过滤扫描结果
+筛选        全部 / 有机会 / 费率归零 / 最近非零 / 深度不足 / 无机会
+点击标的    右侧 Agent 重新调用实时接口，刷新该标的的订单簿、资金费率、基差和分析结论
+```
+
 手动调试接口仍然保留：
 
 ```http
@@ -222,6 +230,12 @@ fundingContext.state                active_positive / active_negative / zero_wit
 GET /opportunities/live?pairId=rspcx_spcx_perp&notionalUsd=5000
 ```
 
+这个接口也支持动态发现出来的 RToken pair：
+
+```http
+GET /opportunities/live?pairId=ralabusdt_alabusdt&spotSymbol=RALABUSDT&futuresSymbol=ALABUSDT&notionalUsd=5000
+```
+
 返回字段重点：
 
 ```text
@@ -232,6 +246,8 @@ entryBasis         开仓基差
 fundingRate        当前单期资金费率
 fundingApr         年化资金费率
 fundingContext     当前费率状态 + 最近 10 期历史费率摘要
+marketSession      美股交易中 / 盘前盘后 / 周末休市 / 节假日休市
+analysis           Agent 结构化分析：信号、费率、基差、风险点、建议动作
 expectedEdge       基差 + 预计资金费率 - 手续费
 depthOk            当前订单簿是否能覆盖名义金额
 narratorText       Agent 解释文本

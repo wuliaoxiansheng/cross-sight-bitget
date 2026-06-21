@@ -1,5 +1,6 @@
 import { config } from "../config/env.js";
 import type {
+  AgentAnalysis,
   BasisEvaluation,
   FundingRate,
   HistoricalFundingRate,
@@ -10,7 +11,8 @@ import type {
   OrderBookLevel,
   SpotTicker
 } from "../types/market.js";
-import { narrateBasisEvaluation } from "./agentNarrator.js";
+import { buildAgentAnalysis, narrateBasisEvaluation } from "./agentNarrator.js";
+import { getMarketSessionContext } from "./marketSession.js";
 
 type FillResult = {
   vwap: number;
@@ -69,6 +71,16 @@ function consumeByBase(levels: OrderBookLevel[], baseTarget: number): FillResult
 
 function ensureFinite(value: number): number {
   return Number.isFinite(value) ? value : 0;
+}
+
+function emptyAnalysis(): AgentAnalysis {
+  return {
+    signalSummary: "",
+    fundingSummary: "",
+    basisSummary: "",
+    riskNotes: [],
+    suggestedAction: ""
+  };
 }
 
 function withTickerFallback(input: {
@@ -177,6 +189,7 @@ export function evaluateBasisOpportunity(input: {
   const closeBasis = spotExit.vwap > 0 && futuresExit.vwap > 0 ? spotExit.vwap / futuresExit.vwap - 1 : 0;
   const fundingApr = calculateFundingApr(input.funding.fundingRate, input.funding.fundingIntervalHours);
   const fundingContext = buildFundingContext(input.funding, input.fundingHistory);
+  const marketSession = getMarketSessionContext();
 
   // Fee drag is expressed as a percentage of notional, so it can be compared
   // directly with entry basis and funding edge.
@@ -225,6 +238,8 @@ export function evaluateBasisOpportunity(input: {
     fundingRate: input.funding.fundingRate,
     fundingApr,
     fundingContext,
+    marketSession,
+    analysis: emptyAnalysis(),
     nextFundingTime: input.funding.nextUpdate,
     depthOk,
     reason,
@@ -233,6 +248,7 @@ export function evaluateBasisOpportunity(input: {
   };
 
   evaluation.narratorText = narrateBasisEvaluation(evaluation);
+  evaluation.analysis = buildAgentAnalysis(evaluation);
   return evaluation;
 }
 

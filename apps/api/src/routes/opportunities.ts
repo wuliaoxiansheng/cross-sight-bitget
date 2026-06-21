@@ -5,9 +5,13 @@ import { evaluateBasisOpportunity } from "../services/basisEngine.js";
 import { BitgetClient } from "../services/bitgetClient.js";
 import { opportunityScanCache } from "../services/opportunityScanCache.js";
 import { scanRTokenOpportunities } from "../services/opportunityScanner.js";
+import { discoverRTokenPairs } from "../services/rtokenDiscovery.js";
+import type { MarketPairConfig } from "../types/market.js";
 
 type LiveQuery = {
   pairId?: string;
+  spotSymbol?: string;
+  futuresSymbol?: string;
   notionalUsd?: string;
 };
 
@@ -15,6 +19,37 @@ type LiveAllQuery = {
   limit?: string;
   notionalUsd?: string;
 };
+
+function normalizeSymbol(value?: string): string | undefined {
+  return value?.trim().toUpperCase() || undefined;
+}
+
+async function resolveLivePair(input: {
+  bitget: BitgetClient;
+  pairId?: string;
+  spotSymbol?: string;
+  futuresSymbol?: string;
+}): Promise<MarketPairConfig | null> {
+  const pairId = input.pairId?.trim().toLowerCase();
+  const spotSymbol = normalizeSymbol(input.spotSymbol);
+  const futuresSymbol = normalizeSymbol(input.futuresSymbol);
+  const matches = (pair: MarketPairConfig) => {
+    if (pairId && pair.id.toLowerCase() === pairId) return true;
+    if (spotSymbol && futuresSymbol && pair.spotSymbol === spotSymbol && pair.futuresSymbol === futuresSymbol) {
+      return true;
+    }
+    return false;
+  };
+
+  const staticPair = WATCHLIST.find((item) => item.enabled && matches(item));
+  if (staticPair) return staticPair;
+
+  const snapshotPair = opportunityScanCache.getSnapshot().latestScan?.items.find((item) => matches(item.pair))?.pair;
+  if (snapshotPair) return snapshotPair;
+
+  const discoveredPair = (await discoverRTokenPairs(input.bitget, 100)).find((item) => matches(item.pair));
+  return discoveredPair?.pair ?? null;
+}
 
 export async function opportunityRoutes(app: FastifyInstance) {
   const bitget = new BitgetClient();
@@ -71,12 +106,17 @@ export async function opportunityRoutes(app: FastifyInstance) {
 
   app.get<{ Querystring: LiveQuery }>("/opportunities/live", async (request) => {
     const pairId = request.query.pairId ?? WATCHLIST[0]?.id;
-    const pair = WATCHLIST.find((item) => item.id === pairId && item.enabled);
+    const pair = await resolveLivePair({
+      bitget,
+      pairId,
+      spotSymbol: request.query.spotSymbol,
+      futuresSymbol: request.query.futuresSymbol
+    });
 
     if (!pair) {
       return {
         error: "PAIR_NOT_FOUND",
-        message: `No enabled market pair found for ${pairId}`
+        message: `No enabled market pair found for ${pairId ?? request.query.spotSymbol ?? "unknown"}`
       };
     }
 

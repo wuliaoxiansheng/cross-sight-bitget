@@ -2,15 +2,25 @@ import type { OpportunityScan } from "../lib/api";
 import { formatPercent, formatUsd } from "../lib/api";
 import { SignalBadge } from "./SignalBadge";
 
-export function OpportunityTable({ scan }: { scan: OpportunityScan }) {
+export function OpportunityTable({
+  scan,
+  selectedPairId,
+  onSelectPair
+}: {
+  scan: OpportunityScan;
+  selectedPairId: string | null;
+  onSelectPair: (item: OpportunityScan["items"][number]) => void;
+}) {
   return (
     <section className="panel scanner-panel">
       <div className="panel-header">
         <div>
           <div className="panel-title">热门 RToken 扫描</div>
-          <p className="panel-subtitle">严格配对：rSPY → SPYUSDT，rQQQ → QQQUSDT；不做模糊匹配。</p>
+          <p className="panel-subtitle">点击任意标的，右侧 Agent 会重新拉取实时盘口、费率和基差。</p>
         </div>
-        <div className="scan-time">{new Date(scan.generatedAt).toLocaleTimeString("zh-CN")}</div>
+        <div className="scan-time">
+          {scan.items.length} 个结果 · {new Date(scan.generatedAt).toLocaleTimeString("zh-CN")}
+        </div>
       </div>
       <div className="table-wrap">
         <table className="opportunity-table">
@@ -30,7 +40,21 @@ export function OpportunityTable({ scan }: { scan: OpportunityScan }) {
             {scan.items.map((item) => {
               const evaluation = item.evaluation;
               return (
-                <tr key={item.pair.id} className={evaluation?.status === "OPEN" ? "row-open" : ""}>
+                <tr
+                  key={item.pair.id}
+                  className={`${evaluation?.status === "OPEN" ? "row-open" : ""} ${
+                    item.pair.id === selectedPairId ? "row-selected" : ""
+                  }`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => onSelectPair(item)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onSelectPair(item);
+                    }
+                  }}
+                >
                   <td>
                     <div className="pair-name">{item.pair.spotSymbol}</div>
                     <div className="pair-sub">{item.pair.futuresSymbol}</div>
@@ -81,6 +105,13 @@ export function OpportunityTable({ scan }: { scan: OpportunityScan }) {
                 </tr>
               );
             })}
+            {scan.items.length === 0 ? (
+              <tr>
+                <td className="empty-cell" colSpan={8}>
+                  没有匹配的 RToken 组合。换个关键词或筛选条件。
+                </td>
+              </tr>
+            ) : null}
           </tbody>
         </table>
       </div>

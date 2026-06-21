@@ -85,6 +85,23 @@ export type FundingContext = {
   state: "active_positive" | "active_negative" | "zero_with_history" | "zero";
 };
 
+export type MarketSessionContext = {
+  state: "regular" | "extended" | "weekend_closed" | "holiday_closed" | "overnight_closed";
+  label: string;
+  description: string;
+  isLikelyInactive: boolean;
+  newYorkDate: string;
+  newYorkTime: string;
+};
+
+export type AgentAnalysis = {
+  signalSummary: string;
+  fundingSummary: string;
+  basisSummary: string;
+  riskNotes: string[];
+  suggestedAction: string;
+};
+
 export type OpportunityStatus = "OPEN" | "HOLD" | "CLOSE" | "WAIT";
 
 export type DiscoveredRTokenPair = {
@@ -111,6 +128,8 @@ export type BasisEvaluation = {
   fundingRate: number;
   fundingApr: number;
   fundingContext: FundingContext;
+  marketSession: MarketSessionContext;
+  analysis: AgentAnalysis;
   nextFundingTime: number;
   depthOk: boolean;
   reason: string;
