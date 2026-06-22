@@ -73,6 +73,10 @@ function ensureFinite(value: number): number {
   return Number.isFinite(value) ? value : 0;
 }
 
+function pct(value: number): string {
+  return `${(value * 100).toFixed(2)}%`;
+}
+
 function emptyAnalysis(): AgentAnalysis {
   return {
     signalSummary: "",
@@ -81,6 +85,28 @@ function emptyAnalysis(): AgentAnalysis {
     riskNotes: [],
     suggestedAction: ""
   };
+}
+
+function relativeDeviation(bookPrice: number, tickerPrice: number): number {
+  if (bookPrice <= 0 || tickerPrice <= 0) return 0;
+  return Math.abs(bookPrice / tickerPrice - 1);
+}
+
+function checkBookTickerConsistency(input: {
+  label: string;
+  book: OrderBook;
+  ticker: Pick<SpotTicker | FuturesTicker, "bidPrice" | "askPrice">;
+}): string | null {
+  const maxDeviation = config.orderBookTickerMaxDeviation;
+  const bestBid = input.book.bids[0]?.price ?? 0;
+  const bestAsk = input.book.asks[0]?.price ?? 0;
+  const bidDeviation = relativeDeviation(bestBid, input.ticker.bidPrice);
+  const askDeviation = relativeDeviation(bestAsk, input.ticker.askPrice);
+  const worstDeviation = Math.max(bidDeviation, askDeviation);
+
+  if (worstDeviation <= maxDeviation) return null;
+
+  return `${input.label} 盘口与 ticker 偏离 ${pct(worstDeviation)}，超过 ${pct(maxDeviation)} 阈值，疑似 stale book 或交易所数据不一致。`;
 }
 
 function withTickerFallback(input: {
@@ -210,7 +236,22 @@ export function evaluateBasisOpportunity(input: {
   // the horizon you actually intend to hold.
   const expectedFundingEdge = input.funding.fundingRate * config.fundingPeriodsToPrice;
   const expectedEdge = entryBasis + expectedFundingEdge - feeDrag;
+  const priceQualityIssues = [
+    checkBookTickerConsistency({
+      label: input.pair.spotSymbol,
+      book: spotBook,
+      ticker: input.spotTicker
+    }),
+    checkBookTickerConsistency({
+      label: input.pair.futuresSymbol,
+      book: futuresBook,
+      ticker: input.futuresTicker
+    })
+  ].filter((issue): issue is string => Boolean(issue));
+  const priceQualityOk = priceQualityIssues.length === 0;
+  const priceQualityReason = priceQualityIssues.join(" ");
   const depthOk =
+    priceQualityOk &&
     spotEntry.filled &&
     futuresEntry.filled &&
     spotExit.filled &&
@@ -229,6 +270,8 @@ export function evaluateBasisOpportunity(input: {
   const reason = buildReason({
     status,
     depthOk,
+    priceQualityOk,
+    priceQualityReason,
     entryBasis,
     closeBasis,
     expectedEdge,
@@ -258,7 +301,9 @@ export function evaluateBasisOpportunity(input: {
     depthOk,
     reason,
     narratorText: "",
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    priceQualityOk,
+    priceQualityReason
   };
 
   evaluation.narratorText = narrateBasisEvaluation(evaluation);
@@ -293,11 +338,17 @@ function classifySignal(input: {
 function buildReason(input: {
   status: BasisEvaluation["status"];
   depthOk: boolean;
+  priceQualityOk: boolean;
+  priceQualityReason: string | null;
   entryBasis: number;
   closeBasis: number;
   expectedEdge: number;
   fundingRate: number;
 }): string {
+  if (!input.priceQualityOk) {
+    return input.priceQualityReason ?? "盘口与 ticker 偏离过大，先不生成开仓信号。";
+  }
+
   if (!input.depthOk) {
     return "订单簿深度不足，当前名义金额无法完整成交，先不生成开仓信号。";
   }

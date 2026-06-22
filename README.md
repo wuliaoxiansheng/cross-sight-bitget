@@ -129,6 +129,7 @@ FEISHU_WEBHOOK_URL=
 FEISHU_KEYWORD=美股
 FEISHU_NOTIFY_COOLDOWN_MS=1800000
 FEISHU_NOTIFY_MAX_ITEMS=5
+ORDER_BOOK_TICKER_MAX_DEVIATION=0.02
 NEXT_PUBLIC_BASE_PATH=
 NEXT_PUBLIC_API_BASE_URL=http://localhost:4000
 ```
@@ -146,6 +147,8 @@ FEISHU_WEBHOOK_URL 非空
 ```
 
 默认消息包含 `FEISHU_KEYWORD=美股`，用于通过飞书自定义关键词安全校验。同一交易对默认 30 分钟内只推送一次，避免每 5 分钟扫描都重复刷屏；可以用 `FEISHU_NOTIFY_COOLDOWN_MS` 调整。单条消息最多推送 `FEISHU_NOTIFY_MAX_ITEMS` 个机会，默认 5 个。
+
+为了避免 Bitget 某些 RToken 出现 ticker 与 orderbook 短时间不一致导致误报，服务端会校验盘口最优买卖价与 ticker 买卖价的偏离。默认 `ORDER_BOOK_TICKER_MAX_DEVIATION=0.02`，超过 2% 时该标的不允许生成 `OPEN` 信号。
 
 ### 子路由部署
 

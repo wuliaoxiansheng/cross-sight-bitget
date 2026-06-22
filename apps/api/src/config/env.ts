@@ -24,6 +24,9 @@ export type AppConfig = {
   // Per-pair cooldown to avoid posting the same OPEN signal every scan.
   feishuNotifyCooldownMs: number;
   feishuNotifyMaxItems: number;
+  // Reject order books whose best bid/ask diverges too far from the exchange
+  // ticker. This catches stale or internally inconsistent RToken books.
+  orderBookTickerMaxDeviation: number;
 };
 
 function loadEnvFiles() {
@@ -95,5 +98,6 @@ export const config: AppConfig = {
   feishuWebhookUrl: process.env.FEISHU_WEBHOOK_URL ?? "",
   feishuKeyword: process.env.FEISHU_KEYWORD ?? "美股",
   feishuNotifyCooldownMs: numberFromEnv("FEISHU_NOTIFY_COOLDOWN_MS", 1_800_000),
-  feishuNotifyMaxItems: numberFromEnv("FEISHU_NOTIFY_MAX_ITEMS", 5)
+  feishuNotifyMaxItems: numberFromEnv("FEISHU_NOTIFY_MAX_ITEMS", 5),
+  orderBookTickerMaxDeviation: numberFromEnv("ORDER_BOOK_TICKER_MAX_DEVIATION", 0.02)
 };

@@ -137,6 +137,8 @@ export type BasisEvaluation = {
   reason: string;
   narratorText: string;
   timestamp: string;
+  priceQualityOk: boolean;
+  priceQualityReason: string | null;
 };
 
 export type OpportunityScanItem = {

@@ -61,6 +61,10 @@ export function buildAgentAnalysis(evaluation: BasisEvaluation): AgentAnalysis {
       : "最近 10 期没有非零费率";
   const riskNotes: string[] = [];
 
+  if (!evaluation.priceQualityOk && evaluation.priceQualityReason) {
+    riskNotes.push(evaluation.priceQualityReason);
+  }
+
   if (!evaluation.depthOk) {
     riskNotes.push("订单簿深度不足，当前监控金额下不适合直接按纸面价差执行。");
   }
