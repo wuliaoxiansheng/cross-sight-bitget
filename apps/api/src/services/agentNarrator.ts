@@ -21,6 +21,27 @@ export function narrateBasisEvaluation(evaluation: BasisEvaluation): string {
     )}，资金费率年化约 ${pct(evaluation.fundingApr)}，扣除预估费用后的 edge 约 ${pct(evaluation.expectedEdge)}。`;
   }
 
+  if (evaluation.opportunityKind === "watch_small_size" && evaluation.bestExecutableBand) {
+    return `${pair} 大额不够好，但小额档位值得盯：${money(
+      evaluation.bestExecutableBand.notionalUsd
+    )} 档位 edge 约 ${pct(evaluation.bestExecutableBand.expectedEdge)}，开仓基差约 ${pct(
+      evaluation.bestExecutableBand.entryBasis
+    )}。`;
+  }
+
+  if (evaluation.opportunityKind === "watch_funding_return") {
+    return `${pair} 当前不能新开仓，但历史费率值得盯：当前费率为 ${pct(
+      evaluation.fundingRate,
+      4
+    )}，最近非零年化约 ${pct(evaluation.fundingContext.recentNonZeroApr ?? 0)}。等费率恢复后再复核基差和深度。`;
+  }
+
+  if (evaluation.opportunityKind === "watch_near_edge") {
+    return `${pair} 接近机会区：当前开仓基差约 ${pct(evaluation.entryBasis)}，扣费后 edge 约 ${pct(
+      evaluation.expectedEdge
+    )}，还没达到开仓阈值。`;
+  }
+
   if (evaluation.status === "CLOSE") {
     const closeLead =
       evaluation.fundingRate === 0
@@ -83,9 +104,21 @@ export function buildAgentAnalysis(evaluation: BasisEvaluation): AgentAnalysis {
     riskNotes.push("扣除现货和合约手续费后，新增开仓 edge 为负。");
   }
 
+  for (const note of evaluation.opportunityNotes) {
+    if (!riskNotes.includes(note)) {
+      riskNotes.push(note);
+    }
+  }
+
   const signalSummary =
-    evaluation.status === "OPEN"
+    evaluation.opportunityKind === "executable"
       ? "深度、正基差和正资金费率同时满足，属于可重点检查的开仓候选。"
+      : evaluation.opportunityKind === "watch_small_size"
+        ? "大额名义金额不满足，但小额档位可能有可执行空间。"
+        : evaluation.opportunityKind === "watch_funding_return"
+          ? "当前费率归零，但历史非零费率较高，适合放入等待费率恢复列表。"
+          : evaluation.opportunityKind === "watch_near_edge"
+            ? "正基差接近开仓阈值，适合继续盯下一轮盘口和费率。"
       : evaluation.status === "HOLD"
         ? "有正基差和正资金费率，但扣费后 edge 不够，不适合追新仓。"
         : evaluation.status === "CLOSE"
@@ -93,8 +126,14 @@ export function buildAgentAnalysis(evaluation: BasisEvaluation): AgentAnalysis {
           : "当前没有可执行套利信号。";
 
   const suggestedAction =
-    evaluation.status === "OPEN"
+    evaluation.opportunityKind === "executable"
       ? "先小额复核订单簿深度和下次结算时间，再考虑 paper trade 记录。"
+      : evaluation.opportunityKind === "watch_small_size"
+        ? "切到更小名义金额实时复核；只在盘口、费率和成交深度同时成立时才考虑。"
+        : evaluation.opportunityKind === "watch_funding_return"
+          ? "加入候选列表，等下一轮资金费率恢复为正且基差仍覆盖费用时再检查。"
+          : evaluation.opportunityKind === "watch_near_edge"
+            ? "继续观察，不要抢跑；等待 edge 穿过开仓阈值。"
       : evaluation.status === "CLOSE"
         ? "如果已经买入 RToken 并做空合约，检查退出基差和手续费后是否平仓；没有仓位则继续观察。"
         : evaluation.status === "HOLD"

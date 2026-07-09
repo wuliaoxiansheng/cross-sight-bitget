@@ -1,6 +1,38 @@
-import type { OpportunityScan } from "../lib/api";
+import type { BasisEvaluation, OpportunityScan } from "../lib/api";
 import { formatPercent, formatUsd } from "../lib/api";
 import { SignalBadge } from "./SignalBadge";
+
+function opportunityHint(evaluation: BasisEvaluation | null): { title: string; detail: string } {
+  if (!evaluation) return { title: "n/a", detail: "" };
+
+  if (evaluation.opportunityKind === "watch_small_size" && evaluation.bestExecutableBand) {
+    return {
+      title: evaluation.opportunityLabel,
+      detail: `Edge ${formatPercent(evaluation.bestExecutableBand.expectedEdge)} · 基差 ${formatPercent(
+        evaluation.bestExecutableBand.entryBasis
+      )}`
+    };
+  }
+
+  if (evaluation.opportunityKind === "watch_funding_return") {
+    return {
+      title: evaluation.opportunityLabel,
+      detail: `当前费率 ${formatPercent(evaluation.fundingRate, 4)}`
+    };
+  }
+
+  if (evaluation.opportunityKind === "watch_near_edge") {
+    return {
+      title: evaluation.opportunityLabel,
+      detail: `阈值差 ${formatPercent(Math.max(0, 0.003 - evaluation.expectedEdge))}`
+    };
+  }
+
+  return {
+    title: evaluation.opportunityLabel,
+    detail: evaluation.opportunityNotes[0] ?? evaluation.reason
+  };
+}
 
 export function OpportunityTable({
   scan,
@@ -28,6 +60,8 @@ export function OpportunityTable({
             <tr>
               <th>标的</th>
               <th>信号</th>
+              <th>机会线索</th>
+              <th>评分</th>
               <th>Edge</th>
               <th>开仓基差</th>
               <th>当前费率</th>
@@ -39,10 +73,13 @@ export function OpportunityTable({
           <tbody>
             {scan.items.map((item) => {
               const evaluation = item.evaluation;
+              const hint = opportunityHint(evaluation);
               return (
                 <tr
                   key={item.pair.id}
-                  className={`${evaluation?.status === "OPEN" ? "row-open" : ""} ${
+                  className={`${evaluation?.opportunityKind === "executable" ? "row-open" : ""} ${
+                    evaluation?.opportunityKind?.startsWith("watch_") ? "row-candidate" : ""
+                  } ${evaluation?.opportunityKind === "data_risk" ? "row-risk" : ""} ${
                     item.pair.id === selectedPairId ? "row-selected" : ""
                   }`}
                   role="button"
@@ -62,9 +99,14 @@ export function OpportunityTable({
                   <td>
                     <SignalBadge item={item} />
                   </td>
+                  <td>
+                    <div className="opportunity-hint">{hint.title}</div>
+                    <div className="pair-sub">{hint.detail}</div>
+                  </td>
+                  <td>{evaluation ? evaluation.opportunityScore.toFixed(1) : "n/a"}</td>
                   <td
                     className={
-                      evaluation?.status === "OPEN" && evaluation.depthOk && evaluation.expectedEdge > 0
+                      evaluation && evaluation.expectedEdge > 0
                         ? "positive"
                         : "muted"
                     }
@@ -107,7 +149,7 @@ export function OpportunityTable({
             })}
             {scan.items.length === 0 ? (
               <tr>
-                <td className="empty-cell" colSpan={8}>
+                <td className="empty-cell" colSpan={10}>
                   没有匹配的 RToken 组合。换个关键词或筛选条件。
                 </td>
               </tr>

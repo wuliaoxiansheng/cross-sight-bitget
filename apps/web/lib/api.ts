@@ -1,5 +1,28 @@
 export type SignalStatus = "OPEN" | "HOLD" | "CLOSE" | "WAIT";
 
+export type OpportunityKind =
+  | "executable"
+  | "watch_small_size"
+  | "watch_funding_return"
+  | "watch_near_edge"
+  | "exit_check"
+  | "data_risk"
+  | "none";
+
+export type ExecutionBand = {
+  notionalUsd: number;
+  depthOk: boolean;
+  baseQuantity: number;
+  spotBuyVwap: number;
+  futuresShortVwap: number;
+  spotSellVwap: number;
+  futuresCoverVwap: number;
+  entryBasis: number;
+  closeBasis: number;
+  expectedFundingEdge: number;
+  expectedEdge: number;
+};
+
 export type FundingContext = {
   currentRate: number;
   intervalHours: number;
@@ -40,6 +63,10 @@ export type BasisEvaluation = {
     futuresSymbol: string;
   };
   status: SignalStatus;
+  opportunityKind: OpportunityKind;
+  opportunityLabel: string;
+  opportunityScore: number;
+  opportunityNotes: string[];
   notionalUsd: number;
   baseQuantity: number;
   spotBuyVwap: number;
@@ -61,6 +88,10 @@ export type BasisEvaluation = {
   reason: string;
   narratorText: string;
   timestamp: string;
+  priceQualityOk?: boolean;
+  priceQualityReason?: string | null;
+  executionBands: ExecutionBand[];
+  bestExecutableBand: ExecutionBand | null;
 };
 
 export type OpportunityScanItem = {
@@ -77,6 +108,7 @@ export type OpportunityScan = {
   discoveredPairs: number;
   scannedPairs: number;
   openCount: number;
+  candidateCount: number;
   closeCount: number;
   noOpportunityCount: number;
   depthIssueCount: number;
@@ -116,6 +148,7 @@ export const sampleScan: OpportunityScan = {
   discoveredPairs: 6,
   scannedPairs: 6,
   openCount: 1,
+  candidateCount: 0,
   closeCount: 1,
   noOpportunityCount: 4,
   depthIssueCount: 2,
@@ -137,6 +170,10 @@ export const sampleScan: OpportunityScan = {
           futuresSymbol: "SPCXUSDT"
         },
         status: "OPEN",
+        opportunityKind: "executable",
+        opportunityLabel: "可开仓",
+        opportunityScore: 108,
+        opportunityNotes: ["当前名义金额满足深度、正基差、正资金费率和扣费后 edge。"],
         notionalUsd: 5000,
         baseQuantity: 27.84,
         spotBuyVwap: 179.63,
@@ -176,7 +213,9 @@ export const sampleScan: OpportunityScan = {
         depthOk: true,
         reason: "合约相对 RToken 现货存在溢价，且资金费率为正，扣除手续费后仍达到开仓阈值。",
         narratorText: "RSPCXUSDT / SPCXUSDT 出现费率基差机会：买现货并空合约仍有正 edge。",
-        timestamp: now
+        timestamp: now,
+        executionBands: [],
+        bestExecutableBand: null
       },
       error: null
     },
@@ -196,6 +235,10 @@ export const sampleScan: OpportunityScan = {
           futuresSymbol: "QQQUSDT"
         },
         status: "WAIT",
+        opportunityKind: "none",
+        opportunityLabel: "无明确机会",
+        opportunityScore: 0,
+        opportunityNotes: ["当前没有足够的基差、费率或深度优势。"],
         notionalUsd: 5000,
         baseQuantity: 6.75,
         spotBuyVwap: 739.92,
@@ -235,7 +278,9 @@ export const sampleScan: OpportunityScan = {
         depthOk: false,
         reason: "订单簿深度不足，当前名义金额无法完整成交。",
         narratorText: "RQQQUSDT / QQQUSDT 暂无可执行套利信号。",
-        timestamp: now
+        timestamp: now,
+        executionBands: [],
+        bestExecutableBand: null
       },
       error: null
     }
@@ -297,16 +342,28 @@ export async function getLiveOpportunity(pair: BasisEvaluation["pair"], notional
 export function statusLabel(item: OpportunityScanItem): string {
   if (item.error) return "接口异常";
   if (!item.evaluation) return "接口异常";
+  if (item.evaluation.opportunityKind === "executable") return "有机会";
+  if (item.evaluation.opportunityKind === "watch_small_size") return "小额机会";
+  if (item.evaluation.opportunityKind === "watch_funding_return") return "等费率";
+  if (item.evaluation.opportunityKind === "watch_near_edge") return "接近机会";
+  if (item.evaluation.opportunityKind === "data_risk") return "数据风险";
   if (!item.evaluation.depthOk) return "深度不足";
-  if (item.evaluation.status === "OPEN") return "有机会";
   if (item.evaluation.status === "CLOSE") return item.evaluation.fundingRate === 0 ? "费率归零" : "适合平仓";
   return "无机会";
 }
 
 export function statusTone(item: OpportunityScanItem): "good" | "bad" | "warn" | "muted" {
   if (item.error || !item.evaluation) return "bad";
+  if (item.evaluation.opportunityKind === "executable") return "good";
+  if (
+    item.evaluation.opportunityKind === "watch_small_size" ||
+    item.evaluation.opportunityKind === "watch_funding_return" ||
+    item.evaluation.opportunityKind === "watch_near_edge" ||
+    item.evaluation.opportunityKind === "data_risk"
+  ) {
+    return "warn";
+  }
   if (!item.evaluation.depthOk) return "warn";
-  if (item.evaluation.status === "OPEN") return "good";
   if (item.evaluation.status === "CLOSE") return "bad";
   return "muted";
 }

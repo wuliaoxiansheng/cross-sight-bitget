@@ -106,6 +106,29 @@ export type AgentAnalysis = {
 
 export type OpportunityStatus = "OPEN" | "HOLD" | "CLOSE" | "WAIT";
 
+export type OpportunityKind =
+  | "executable"
+  | "watch_small_size"
+  | "watch_funding_return"
+  | "watch_near_edge"
+  | "exit_check"
+  | "data_risk"
+  | "none";
+
+export type ExecutionBand = {
+  notionalUsd: number;
+  depthOk: boolean;
+  baseQuantity: number;
+  spotBuyVwap: number;
+  futuresShortVwap: number;
+  spotSellVwap: number;
+  futuresCoverVwap: number;
+  entryBasis: number;
+  closeBasis: number;
+  expectedFundingEdge: number;
+  expectedEdge: number;
+};
+
 export type DiscoveredRTokenPair = {
   pair: MarketPairConfig;
   spotTicker: SpotTicker;
@@ -116,6 +139,10 @@ export type DiscoveredRTokenPair = {
 export type BasisEvaluation = {
   pair: MarketPairConfig;
   status: OpportunityStatus;
+  opportunityKind: OpportunityKind;
+  opportunityLabel: string;
+  opportunityScore: number;
+  opportunityNotes: string[];
   notionalUsd: number;
   baseQuantity: number;
   spotBuyVwap: number;
@@ -139,6 +166,8 @@ export type BasisEvaluation = {
   timestamp: string;
   priceQualityOk: boolean;
   priceQualityReason: string | null;
+  executionBands: ExecutionBand[];
+  bestExecutableBand: ExecutionBand | null;
 };
 
 export type OpportunityScanItem = {
@@ -155,6 +184,7 @@ export type OpportunityScan = {
   discoveredPairs: number;
   scannedPairs: number;
   openCount: number;
+  candidateCount: number;
   closeCount: number;
   noOpportunityCount: number;
   depthIssueCount: number;

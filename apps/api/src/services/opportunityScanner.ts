@@ -23,22 +23,28 @@ async function fallbackFundingHistory() {
 }
 
 function sortItems(a: OpportunityScanItem, b: OpportunityScanItem): number {
+  const kindRank = {
+    executable: 0,
+    watch_small_size: 1,
+    watch_funding_return: 2,
+    watch_near_edge: 3,
+    exit_check: 4,
+    none: 5,
+    data_risk: 6,
+    ERROR: 7
+  };
+
+  const aKind = a.evaluation?.opportunityKind ?? "ERROR";
+  const bKind = b.evaluation?.opportunityKind ?? "ERROR";
+  const rankDiff = kindRank[aKind] - kindRank[bKind];
+  if (rankDiff !== 0) return rankDiff;
+
+  const scoreDiff = (b.evaluation?.opportunityScore ?? -999) - (a.evaluation?.opportunityScore ?? -999);
+  if (scoreDiff !== 0) return scoreDiff;
+
   const aPinned = WATCHLIST_KEYS.has(`${a.pair.spotSymbol}:${a.pair.futuresSymbol}`);
   const bPinned = WATCHLIST_KEYS.has(`${b.pair.spotSymbol}:${b.pair.futuresSymbol}`);
   if (aPinned !== bPinned) return aPinned ? -1 : 1;
-
-  const rank = {
-    OPEN: 0,
-    CLOSE: 1,
-    HOLD: 2,
-    WAIT: 3,
-    ERROR: 4
-  };
-
-  const aStatus = a.evaluation?.status ?? "ERROR";
-  const bStatus = b.evaluation?.status ?? "ERROR";
-  const rankDiff = rank[aStatus] - rank[bStatus];
-  if (rankDiff !== 0) return rankDiff;
 
   return (b.evaluation?.expectedEdge ?? -999) - (a.evaluation?.expectedEdge ?? -999);
 }
@@ -115,6 +121,9 @@ export async function scanRTokenOpportunities(input: {
 
   const sortedItems = items.sort(sortItems);
   const openCount = sortedItems.filter((item) => item.evaluation?.status === "OPEN").length;
+  const candidateCount = sortedItems.filter((item) =>
+    ["watch_small_size", "watch_funding_return", "watch_near_edge"].includes(item.evaluation?.opportunityKind ?? "")
+  ).length;
   const closeCount = sortedItems.filter((item) => item.evaluation?.status === "CLOSE").length;
   const depthIssueCount = sortedItems.filter((item) => item.evaluation && !item.evaluation.depthOk).length;
   const errorCount = sortedItems.filter((item) => item.error).length;
@@ -126,6 +135,7 @@ export async function scanRTokenOpportunities(input: {
     discoveredPairs: discoveredPairs.length,
     scannedPairs: sortedItems.length,
     openCount,
+    candidateCount,
     closeCount,
     noOpportunityCount: sortedItems.length - openCount - closeCount - errorCount,
     depthIssueCount,

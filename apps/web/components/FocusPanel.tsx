@@ -1,4 +1,4 @@
-import { Activity, Clock3, DollarSign, Radio, ShieldAlert, Zap } from "lucide-react";
+import { Activity, Binoculars, Clock3, DollarSign, Radio, ShieldAlert, Zap } from "lucide-react";
 import type { OpportunityScan, OpportunityScanItem } from "../lib/api";
 import { formatPercent, formatUsd } from "../lib/api";
 import { SignalBadge } from "./SignalBadge";
@@ -69,6 +69,11 @@ export function FocusPanel({
           <strong>{formatPercent(evaluation.expectedEdge)}</strong>
         </div>
         <div>
+          <Binoculars size={16} />
+          <span>机会线索</span>
+          <strong>{evaluation.opportunityLabel}</strong>
+        </div>
+        <div>
           <Activity size={16} />
           <span>开仓基差</span>
           <strong>{formatPercent(evaluation.entryBasis)}</strong>
@@ -90,6 +95,22 @@ export function FocusPanel({
             {evaluation.fundingContext.recentNonZeroApr != null
               ? formatPercent(evaluation.fundingContext.recentNonZeroApr)
               : "近 10 期无"}
+          </strong>
+        </div>
+        <div>
+          <Activity size={16} />
+          <span>机会评分</span>
+          <strong>{evaluation.opportunityScore.toFixed(1)}</strong>
+        </div>
+        <div>
+          <DollarSign size={16} />
+          <span>最佳可执行档</span>
+          <strong>
+            {evaluation.bestExecutableBand
+              ? `${formatUsd(evaluation.bestExecutableBand.notionalUsd)} · ${formatPercent(
+                  evaluation.bestExecutableBand.expectedEdge
+                )}`
+              : "暂无"}
           </strong>
         </div>
       </div>
@@ -122,6 +143,10 @@ export function FocusPanel({
         <div>
           <span>建议动作</span>
           <strong>{evaluation.analysis.suggestedAction}</strong>
+        </div>
+        <div>
+          <span>机会线索</span>
+          <strong>{evaluation.opportunityNotes.join(" ")}</strong>
         </div>
       </div>
 

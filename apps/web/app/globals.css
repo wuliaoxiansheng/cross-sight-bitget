@@ -74,6 +74,10 @@ p {
   background: var(--steel);
 }
 
+.hero-watch::before {
+  background: var(--amber);
+}
+
 .eyebrow {
   color: var(--cyan);
   font-size: 12px;
@@ -115,7 +119,7 @@ h1 {
 
 .stat-strip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
   margin-top: 18px;
 }
@@ -156,6 +160,11 @@ h1 {
 }
 
 .stat-warn {
+  border-color: rgba(245, 196, 91, 0.45);
+  background: var(--amber-bg);
+}
+
+.stat-watch {
   border-color: rgba(245, 196, 91, 0.45);
   background: var(--amber-bg);
 }
@@ -311,7 +320,7 @@ h1 {
 
 .opportunity-table {
   width: 100%;
-  min-width: 1080px;
+  min-width: 1240px;
   border-collapse: collapse;
   font-size: 13px;
 }
@@ -344,6 +353,14 @@ h1 {
   background: rgba(66, 227, 139, 0.07);
 }
 
+.row-candidate td {
+  background: rgba(245, 196, 91, 0.06);
+}
+
+.row-risk td {
+  background: rgba(255, 106, 95, 0.05);
+}
+
 .opportunity-table tbody tr[role="button"] {
   cursor: pointer;
 }
@@ -371,6 +388,13 @@ h1 {
   margin-top: 4px;
   color: var(--muted);
   font-size: 12px;
+}
+
+.opportunity-hint {
+  max-width: 240px;
+  color: var(--soft);
+  font-weight: 850;
+  line-height: 1.3;
 }
 
 .signal-badge {
@@ -479,7 +503,9 @@ h1 {
 .focus-metrics strong {
   display: block;
   margin-top: 5px;
-  font-size: 18px;
+  font-size: 16px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .agent-note {

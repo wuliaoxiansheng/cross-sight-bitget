@@ -2,6 +2,7 @@ import { config } from "../config/env.js";
 import type {
   AgentAnalysis,
   BasisEvaluation,
+  ExecutionBand,
   FundingRate,
   HistoricalFundingRate,
   FundingContext,
@@ -13,6 +14,10 @@ import type {
 } from "../types/market.js";
 import { buildAgentAnalysis, narrateBasisEvaluation } from "./agentNarrator.js";
 import { getMarketSessionContext } from "./marketSession.js";
+
+const EXECUTION_BAND_NOTIONALS = [500, 1_000, 2_500, 5_000, 10_000];
+const FUNDING_RETURN_APR_THRESHOLD = 0.1;
+const NEAR_EDGE_THRESHOLD = 0;
 
 type FillResult = {
   vwap: number;
@@ -133,6 +138,89 @@ function withTickerFallback(input: {
   };
 }
 
+function buildExecutionBand(input: {
+  notionalUsd: number;
+  spotBook: OrderBook;
+  futuresBook: OrderBook;
+  fundingRate: number;
+  feeDrag: number;
+  priceQualityOk: boolean;
+}): ExecutionBand {
+  const spotEntry = consumeByQuote(input.spotBook.asks, input.notionalUsd);
+  const futuresEntry = consumeByBase(input.futuresBook.bids, spotEntry.baseQuantity);
+  const spotExit = consumeByBase(input.spotBook.bids, spotEntry.baseQuantity);
+  const futuresExit = consumeByBase(input.futuresBook.asks, spotEntry.baseQuantity);
+  const entryBasis = spotEntry.vwap > 0 && futuresEntry.vwap > 0 ? futuresEntry.vwap / spotEntry.vwap - 1 : 0;
+  const closeBasis = spotExit.vwap > 0 && futuresExit.vwap > 0 ? spotExit.vwap / futuresExit.vwap - 1 : 0;
+  const expectedFundingEdge = input.fundingRate * config.fundingPeriodsToPrice;
+  const expectedEdge = entryBasis + expectedFundingEdge - input.feeDrag;
+  const depthOk =
+    input.priceQualityOk &&
+    spotEntry.filled &&
+    futuresEntry.filled &&
+    spotExit.filled &&
+    futuresExit.filled &&
+    spotEntry.vwap > 0 &&
+    futuresEntry.vwap > 0;
+
+  return {
+    notionalUsd: input.notionalUsd,
+    depthOk,
+    baseQuantity: spotEntry.baseQuantity,
+    spotBuyVwap: spotEntry.vwap,
+    futuresShortVwap: futuresEntry.vwap,
+    spotSellVwap: spotExit.vwap,
+    futuresCoverVwap: futuresExit.vwap,
+    entryBasis: ensureFinite(entryBasis),
+    closeBasis: ensureFinite(closeBasis),
+    expectedFundingEdge,
+    expectedEdge: ensureFinite(expectedEdge)
+  };
+}
+
+function buildExecutionBands(input: {
+  requestedNotional: number;
+  maxNotionalUsd: number;
+  spotBook: OrderBook;
+  futuresBook: OrderBook;
+  fundingRate: number;
+  feeDrag: number;
+  priceQualityOk: boolean;
+}): ExecutionBand[] {
+  const notionals = [...EXECUTION_BAND_NOTIONALS, input.requestedNotional, input.maxNotionalUsd]
+    .map((notional) => Math.min(notional, input.maxNotionalUsd))
+    .filter((notional) => notional > 0);
+  const uniqueNotionals = [...new Set(notionals)].sort((a, b) => a - b);
+
+  return uniqueNotionals.map((notionalUsd) =>
+    buildExecutionBand({
+      notionalUsd,
+      spotBook: input.spotBook,
+      futuresBook: input.futuresBook,
+      fundingRate: input.fundingRate,
+      feeDrag: input.feeDrag,
+      priceQualityOk: input.priceQualityOk
+    })
+  );
+}
+
+function isExecutableBand(band: ExecutionBand, fundingRate: number): boolean {
+  return (
+    band.depthOk &&
+    band.entryBasis > 0 &&
+    band.expectedEdge >= config.openEdgeThreshold &&
+    fundingRate > 0
+  );
+}
+
+function pickBestExecutableBand(bands: ExecutionBand[], fundingRate: number): ExecutionBand | null {
+  return (
+    bands
+      .filter((band) => isExecutableBand(band, fundingRate))
+      .sort((a, b) => b.notionalUsd - a.notionalUsd || b.expectedEdge - a.expectedEdge)[0] ?? null
+  );
+}
+
 export function calculateFundingApr(fundingRate: number, intervalHours: number): number {
   if (intervalHours <= 0) return 0;
   return fundingRate * (24 / intervalHours) * 365;
@@ -250,6 +338,16 @@ export function evaluateBasisOpportunity(input: {
   ].filter((issue): issue is string => Boolean(issue));
   const priceQualityOk = priceQualityIssues.length === 0;
   const priceQualityReason = priceQualityIssues.join(" ");
+  const executionBands = buildExecutionBands({
+    requestedNotional,
+    maxNotionalUsd: input.pair.maxNotionalUsd,
+    spotBook,
+    futuresBook,
+    fundingRate: input.funding.fundingRate,
+    feeDrag,
+    priceQualityOk
+  });
+  const bestExecutableBand = pickBestExecutableBand(executionBands, input.funding.fundingRate);
   const depthOk =
     priceQualityOk &&
     spotEntry.filled &&
@@ -266,6 +364,41 @@ export function evaluateBasisOpportunity(input: {
     expectedEdge,
     fundingRate: input.funding.fundingRate
   });
+  const opportunityKind = classifyOpportunityKind({
+    status,
+    depthOk,
+    priceQualityOk,
+    requestedNotional,
+    bestExecutableBand,
+    entryBasis,
+    expectedEdge,
+    fundingRate: input.funding.fundingRate,
+    fundingContext
+  });
+  const opportunityLabel = buildOpportunityLabel({
+    opportunityKind,
+    bestExecutableBand,
+    requestedNotional,
+    fundingContext,
+    expectedEdge
+  });
+  const opportunityNotes = buildOpportunityNotes({
+    opportunityKind,
+    bestExecutableBand,
+    requestedNotional,
+    fundingContext,
+    entryBasis,
+    expectedEdge
+  });
+  const opportunityScore = scoreOpportunity({
+    opportunityKind,
+    bestExecutableBand,
+    entryBasis,
+    expectedEdge,
+    fundingApr,
+    fundingContext,
+    spotVolumeUsd: input.spotTicker.quoteVolume
+  });
 
   const reason = buildReason({
     status,
@@ -281,6 +414,10 @@ export function evaluateBasisOpportunity(input: {
   const evaluation: BasisEvaluation = {
     pair: input.pair,
     status,
+    opportunityKind,
+    opportunityLabel,
+    opportunityScore,
+    opportunityNotes,
     notionalUsd: requestedNotional,
     baseQuantity: spotEntry.baseQuantity,
     spotBuyVwap: spotEntry.vwap,
@@ -303,7 +440,9 @@ export function evaluateBasisOpportunity(input: {
     narratorText: "",
     timestamp: new Date().toISOString(),
     priceQualityOk,
-    priceQualityReason
+    priceQualityReason,
+    executionBands,
+    bestExecutableBand
   };
 
   evaluation.narratorText = narrateBasisEvaluation(evaluation);
@@ -333,6 +472,152 @@ function classifySignal(input: {
   }
 
   return "WAIT";
+}
+
+function classifyOpportunityKind(input: {
+  status: BasisEvaluation["status"];
+  depthOk: boolean;
+  priceQualityOk: boolean;
+  requestedNotional: number;
+  bestExecutableBand: ExecutionBand | null;
+  entryBasis: number;
+  expectedEdge: number;
+  fundingRate: number;
+  fundingContext: FundingContext;
+}): BasisEvaluation["opportunityKind"] {
+  if (!input.priceQualityOk) return "data_risk";
+  if (input.status === "OPEN") return "executable";
+
+  if (input.bestExecutableBand && input.bestExecutableBand.notionalUsd < input.requestedNotional) {
+    return "watch_small_size";
+  }
+
+  if (
+    input.depthOk &&
+    input.fundingRate === 0 &&
+    (input.fundingContext.recentNonZeroApr ?? 0) >= FUNDING_RETURN_APR_THRESHOLD
+  ) {
+    return "watch_funding_return";
+  }
+
+  if (input.depthOk && input.entryBasis > 0 && input.expectedEdge >= NEAR_EDGE_THRESHOLD) {
+    return "watch_near_edge";
+  }
+
+  if (input.status === "CLOSE") return "exit_check";
+  return "none";
+}
+
+function formatMoney(value: number): string {
+  return value.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0
+  });
+}
+
+function buildOpportunityLabel(input: {
+  opportunityKind: BasisEvaluation["opportunityKind"];
+  bestExecutableBand: ExecutionBand | null;
+  requestedNotional: number;
+  fundingContext: FundingContext;
+  expectedEdge: number;
+}): string {
+  if (input.opportunityKind === "executable") return "可开仓";
+  if (input.opportunityKind === "watch_small_size" && input.bestExecutableBand) {
+    return `小额可试 ${formatMoney(input.bestExecutableBand.notionalUsd)}`;
+  }
+  if (input.opportunityKind === "watch_funding_return") {
+    return `等费率恢复，最近 APR ${pct(input.fundingContext.recentNonZeroApr ?? 0)}`;
+  }
+  if (input.opportunityKind === "watch_near_edge") {
+    return `接近阈值，差 ${pct(config.openEdgeThreshold - input.expectedEdge)}`;
+  }
+  if (input.opportunityKind === "exit_check") return "已有仓位检查退出";
+  if (input.opportunityKind === "data_risk") return "数据风险";
+  return "无明确机会";
+}
+
+function buildOpportunityNotes(input: {
+  opportunityKind: BasisEvaluation["opportunityKind"];
+  bestExecutableBand: ExecutionBand | null;
+  requestedNotional: number;
+  fundingContext: FundingContext;
+  entryBasis: number;
+  expectedEdge: number;
+}): string[] {
+  if (input.opportunityKind === "executable") {
+    return ["当前名义金额满足深度、正基差、正资金费率和扣费后 edge。"];
+  }
+
+  if (input.opportunityKind === "watch_small_size" && input.bestExecutableBand) {
+    return [
+      `${formatMoney(input.requestedNotional)} 深度不足或 edge 不够，但 ${formatMoney(
+        input.bestExecutableBand.notionalUsd
+      )} 档位达到开仓阈值。`,
+      `小额档位 edge ${pct(input.bestExecutableBand.expectedEdge)}，开仓基差 ${pct(
+        input.bestExecutableBand.entryBasis
+      )}。`
+    ];
+  }
+
+  if (input.opportunityKind === "watch_funding_return") {
+    return [
+      `当前费率为 0，但最近非零 APR 达到 ${pct(input.fundingContext.recentNonZeroApr ?? 0)}。`,
+      "如果下一轮资金费率恢复，同时基差没有被抹平，可以重新进入开仓候选。"
+    ];
+  }
+
+  if (input.opportunityKind === "watch_near_edge") {
+    return [
+      `当前仍有正基差 ${pct(input.entryBasis)}，扣费后 edge ${pct(input.expectedEdge)}，离开仓阈值较近。`
+    ];
+  }
+
+  if (input.opportunityKind === "exit_check") {
+    return ["更适合用来检查已有仓位是否退出，不适合作为新增开仓。"];
+  }
+
+  if (input.opportunityKind === "data_risk") {
+    return ["盘口与 ticker 不一致或深度异常，先按假信号处理。"];
+  }
+
+  return ["当前没有足够的基差、费率或深度优势。"];
+}
+
+function scoreOpportunity(input: {
+  opportunityKind: BasisEvaluation["opportunityKind"];
+  bestExecutableBand: ExecutionBand | null;
+  entryBasis: number;
+  expectedEdge: number;
+  fundingApr: number;
+  fundingContext: FundingContext;
+  spotVolumeUsd: number;
+}): number {
+  const volumeBoost = Math.min(Math.log10(Math.max(input.spotVolumeUsd, 1)) / 20, 0.5);
+
+  if (input.opportunityKind === "executable") {
+    return 100 + input.expectedEdge * 1_000 + Math.max(input.fundingApr, 0) * 2 + volumeBoost;
+  }
+
+  if (input.opportunityKind === "watch_small_size" && input.bestExecutableBand) {
+    return 80 + input.bestExecutableBand.expectedEdge * 1_000 + volumeBoost;
+  }
+
+  if (input.opportunityKind === "watch_funding_return") {
+    return 60 + (input.fundingContext.recentNonZeroApr ?? 0) * 10 + input.entryBasis * 100 + volumeBoost;
+  }
+
+  if (input.opportunityKind === "watch_near_edge") {
+    return 50 + input.expectedEdge * 1_000 + input.entryBasis * 100 + volumeBoost;
+  }
+
+  if (input.opportunityKind === "exit_check") {
+    return 20 + Math.max(input.fundingContext.recentNonZeroApr ?? 0, 0) + volumeBoost;
+  }
+
+  if (input.opportunityKind === "data_risk") return -20;
+  return 0 + volumeBoost;
 }
 
 function buildReason(input: {

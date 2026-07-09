@@ -9,11 +9,14 @@ import { RiskNotes } from "./RiskNotes";
 import type { BasisEvaluation, OpportunityScan, OpportunityScanItem, OpportunitySnapshot } from "../lib/api";
 import { API_BASE_URL, getLiveOpportunity } from "../lib/api";
 
-type SignalFilter = "all" | "open" | "funding-zero" | "recent-funding" | "depth" | "none";
+type SignalFilter = "all" | "open" | "candidate" | "small-size" | "funding-watch" | "funding-zero" | "recent-funding" | "depth" | "none";
 
 const FILTERS: Array<{ id: SignalFilter; label: string }> = [
   { id: "all", label: "全部" },
   { id: "open", label: "有机会" },
+  { id: "candidate", label: "候选" },
+  { id: "small-size", label: "小额" },
+  { id: "funding-watch", label: "等费率" },
   { id: "funding-zero", label: "费率归零" },
   { id: "recent-funding", label: "最近非零" },
   { id: "depth", label: "深度不足" },
@@ -31,6 +34,7 @@ function statusText(snapshot: OpportunitySnapshot): string {
 function pickDefaultItem(scan: OpportunityScan): OpportunityScanItem | undefined {
   return (
     scan.items.find((item) => item.evaluation?.status === "OPEN" && item.evaluation.depthOk) ??
+    scan.items.find((item) => item.evaluation?.opportunityKind?.startsWith("watch_")) ??
     scan.items.find((item) => item.evaluation?.status === "CLOSE") ??
     scan.items[0]
   );
@@ -48,6 +52,9 @@ function matchesFilter(item: OpportunityScanItem, filter: SignalFilter): boolean
   if (filter === "all") return true;
   if (!evaluation) return false;
   if (filter === "open") return evaluation.status === "OPEN" && evaluation.depthOk;
+  if (filter === "candidate") return evaluation.opportunityKind.startsWith("watch_");
+  if (filter === "small-size") return evaluation.opportunityKind === "watch_small_size";
+  if (filter === "funding-watch") return evaluation.opportunityKind === "watch_funding_return";
   if (filter === "funding-zero") return evaluation.status === "CLOSE" && evaluation.fundingRate === 0;
   if (filter === "recent-funding") return evaluation.fundingContext.recentNonZeroRate != null;
   if (filter === "depth") return !evaluation.depthOk;
