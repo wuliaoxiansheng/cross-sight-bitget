@@ -6,6 +6,8 @@ export type AppConfig = {
   port: number;
   databaseUrl: string;
   bitgetBaseUrl: string;
+  hyperliquidInfoUrl: string;
+  hyperliquidDex: string;
   corsOrigin: string;
   defaultNotionalUsd: number;
   openEdgeThreshold: number;
@@ -27,6 +29,12 @@ export type AppConfig = {
   // Reject order books whose best bid/ask diverges too far from the exchange
   // ticker. This catches stale or internally inconsistent RToken books.
   orderBookTickerMaxDeviation: number;
+  // Cross-venue perpetual scanner assumptions. HIP-3 builder-deployed markets
+  // can use a different fee schedule, so keep this configurable.
+  hyperliquidTakerFeeRate: number;
+  crossVenueFundingHorizonHours: number;
+  crossVenuePriceRatioMin: number;
+  crossVenuePriceRatioMax: number;
 };
 
 function loadEnvFiles() {
@@ -89,6 +97,8 @@ export const config: AppConfig = {
   port: numberFromEnv("PORT", 4000),
   databaseUrl: process.env.DATABASE_URL ?? "",
   bitgetBaseUrl: process.env.BITGET_BASE_URL ?? "https://api.bitget.com",
+  hyperliquidInfoUrl: process.env.HYPERLIQUID_INFO_URL ?? "https://api.hyperliquid.xyz/info",
+  hyperliquidDex: process.env.HYPERLIQUID_DEX ?? "xyz",
   corsOrigin: process.env.CORS_ORIGIN ?? "http://localhost:3000",
   defaultNotionalUsd: numberFromEnv("DEFAULT_NOTIONAL_USD", 5000),
   openEdgeThreshold: numberFromEnv("OPEN_EDGE_THRESHOLD", 0.003),
@@ -99,5 +109,9 @@ export const config: AppConfig = {
   feishuKeyword: process.env.FEISHU_KEYWORD ?? "美股",
   feishuNotifyCooldownMs: numberFromEnv("FEISHU_NOTIFY_COOLDOWN_MS", 1_800_000),
   feishuNotifyMaxItems: numberFromEnv("FEISHU_NOTIFY_MAX_ITEMS", 5),
-  orderBookTickerMaxDeviation: numberFromEnv("ORDER_BOOK_TICKER_MAX_DEVIATION", 0.02)
+  orderBookTickerMaxDeviation: numberFromEnv("ORDER_BOOK_TICKER_MAX_DEVIATION", 0.02),
+  hyperliquidTakerFeeRate: numberFromEnv("HYPERLIQUID_TAKER_FEE_RATE", 0.0009),
+  crossVenueFundingHorizonHours: numberFromEnv("CROSS_VENUE_FUNDING_HORIZON_HOURS", 8),
+  crossVenuePriceRatioMin: numberFromEnv("CROSS_VENUE_PRICE_RATIO_MIN", 0.8),
+  crossVenuePriceRatioMax: numberFromEnv("CROSS_VENUE_PRICE_RATIO_MAX", 1.2)
 };

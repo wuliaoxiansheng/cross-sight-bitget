@@ -1,7 +1,9 @@
 import { config } from "../config/env.js";
-import type { OpportunityScan, OpportunitySnapshot } from "../types/market.js";
+import type { CrossVenueOpportunityScan, OpportunityScan, OpportunitySnapshot } from "../types/market.js";
 import { BitgetClient } from "./bitgetClient.js";
+import { scanCrossVenueOpportunities } from "./crossVenueScanner.js";
 import { feishuOpportunityNotifier } from "./feishuNotifier.js";
+import { HyperliquidClient } from "./hyperliquidClient.js";
 import { scanRTokenOpportunities } from "./opportunityScanner.js";
 
 type Subscriber = (snapshot: OpportunitySnapshot) => void;
@@ -12,6 +14,7 @@ const DEFAULT_LIMIT: number | null = null;
 
 export class OpportunityScanCache {
   private latestScan: OpportunityScan | null = null;
+  private latestCrossVenueScan: CrossVenueOpportunityScan | null = null;
   private scanning = false;
   private startedAt: string | null = null;
   private completedAt: string | null = null;
@@ -22,6 +25,7 @@ export class OpportunityScanCache {
 
   constructor(
     private readonly bitget = new BitgetClient(),
+    private readonly hyperliquid = new HyperliquidClient(),
     private readonly intervalMs = SCAN_INTERVAL_MS,
     private readonly limit: number | null = DEFAULT_LIMIT
   ) {}
@@ -49,8 +53,15 @@ export class OpportunityScanCache {
       Boolean(this.completedAt) && Date.now() - new Date(this.completedAt as string).getTime() > STALE_AFTER_MS;
 
     return {
-      status: this.lastError && !this.latestScan ? "error" : this.scanning ? "scanning" : this.latestScan ? (isStale ? "stale" : "ready") : "warming",
+      status: this.lastError && !this.latestScan && !this.latestCrossVenueScan
+        ? "error"
+        : this.scanning
+          ? "scanning"
+          : this.latestScan || this.latestCrossVenueScan
+            ? (isStale ? "stale" : "ready")
+            : "warming",
       latestScan: this.latestScan,
+      crossVenueScan: this.latestCrossVenueScan,
       scanning: this.scanning,
       startedAt: this.startedAt,
       completedAt: this.completedAt,
@@ -79,16 +90,43 @@ export class OpportunityScanCache {
     this.emit();
 
     try {
-      this.latestScan = await scanRTokenOpportunities({
-        bitget: this.bitget,
-        limit: this.limit,
-        notionalUsd: config.defaultNotionalUsd
-      });
-      void feishuOpportunityNotifier.notifyOpenOpportunities(this.latestScan).catch((error) => {
-        console.error("Failed to send Feishu opportunity alert", error);
-      });
+      const [rtokenResult, crossVenueResult] = await Promise.allSettled([
+        scanRTokenOpportunities({
+          bitget: this.bitget,
+          limit: this.limit,
+          notionalUsd: config.defaultNotionalUsd
+        }),
+        scanCrossVenueOpportunities({
+          bitget: this.bitget,
+          hyperliquid: this.hyperliquid,
+          notionalUsd: config.defaultNotionalUsd
+        })
+      ]);
+      const errors: string[] = [];
+
+      if (rtokenResult.status === "fulfilled") {
+        this.latestScan = rtokenResult.value;
+        void feishuOpportunityNotifier.notifyOpenOpportunities(this.latestScan).catch((error) => {
+          console.error("Failed to send Feishu RToken opportunity alert", error);
+        });
+      } else {
+        errors.push(`RToken: ${rtokenResult.reason instanceof Error ? rtokenResult.reason.message : String(rtokenResult.reason)}`);
+      }
+
+      if (crossVenueResult.status === "fulfilled") {
+        this.latestCrossVenueScan = crossVenueResult.value;
+        void feishuOpportunityNotifier.notifyCrossVenueOpportunities(this.latestCrossVenueScan).catch((error) => {
+          console.error("Failed to send Feishu cross-venue opportunity alert", error);
+        });
+      } else {
+        errors.push(`Cross-venue: ${crossVenueResult.reason instanceof Error ? crossVenueResult.reason.message : String(crossVenueResult.reason)}`);
+      }
+
+      if (rtokenResult.status === "rejected" && crossVenueResult.status === "rejected") {
+        throw new Error(errors.join("; "));
+      }
       this.completedAt = new Date().toISOString();
-      this.lastError = null;
+      this.lastError = errors.length > 0 ? errors.join("; ") : null;
       this.nextRunAt = new Date(Date.now() + this.intervalMs).toISOString();
     } catch (error) {
       this.lastError = error instanceof Error ? error.message : "Unknown scanner error";

@@ -15,6 +15,20 @@ function money(value: number): string {
 export function narrateBasisEvaluation(evaluation: BasisEvaluation): string {
   const pair = `${evaluation.pair.spotSymbol} / ${evaluation.pair.futuresSymbol}`;
 
+  if (evaluation.opportunityKind === "basis_convergence") {
+    const fundingCost = evaluation.fundingRate < 0
+      ? `当前负费率每期约 ${pct(Math.abs(evaluation.fundingRate), 4)}，跨市场净价差理论上可覆盖约 ${(
+          evaluation.negativeFundingBreakEvenPeriods ?? 0
+        ).toFixed(1)} 期。`
+      : `当前资金费率为 ${pct(evaluation.fundingRate, 4)}。`;
+
+    return `${pair} 出现跨市场价差收敛机会：同一标的在 RToken 现货市场买入 ${money(evaluation.notionalUsd)}，并在 BG 合约市场同步做空等数量合约。VWAP 开仓基差约 ${pct(
+      evaluation.entryBasis
+    )}，扣除四腿手续费后的跨市场净价差约 ${pct(evaluation.basisEdge)}，计入预估费率后 Edge 约 ${pct(
+      evaluation.expectedEdge
+    )}。${fundingCost}`;
+  }
+
   if (evaluation.status === "OPEN") {
     return `${pair} 出现费率基差机会：用 ${money(evaluation.notionalUsd)} 买入 RToken 现货、同步做空合约，VWAP 开仓基差约 ${pct(
       evaluation.entryBasis
@@ -94,7 +108,16 @@ export function buildAgentAnalysis(evaluation: BasisEvaluation): AgentAnalysis {
     riskNotes.push(evaluation.marketSession.description);
   }
 
-  if (evaluation.fundingRate === 0) {
+  if (evaluation.opportunityKind === "basis_convergence") {
+    riskNotes.push("这类信号赚的是两个市场对同一标的的价差收敛，不是正资金费率；价差可能继续扩大，必须控制保证金和持有时间。");
+    if (evaluation.fundingRate < 0) {
+      riskNotes.push(
+        `BG 合约空头当前需要支付资金费率；按当前费率静态估算，跨市场净价差约可覆盖 ${(
+          evaluation.negativeFundingBreakEvenPeriods ?? 0
+        ).toFixed(1)} 期，实际费率会变化。`
+      );
+    }
+  } else if (evaluation.fundingRate === 0) {
     riskNotes.push("当前资金费率为 0，不能为了吃费率新开仓，只能作为已有仓位退出或周末缺口观察信号。");
   } else if (evaluation.fundingRate < 0) {
     riskNotes.push("当前资金费率为负，做空合约不再收钱，继续持有会反向付费。");
@@ -111,7 +134,9 @@ export function buildAgentAnalysis(evaluation: BasisEvaluation): AgentAnalysis {
   }
 
   const signalSummary =
-    evaluation.opportunityKind === "executable"
+    evaluation.opportunityKind === "basis_convergence"
+      ? "同一标的在 BG 合约市场的可成交价显著高于 RToken 现货市场，扣除四腿成本和预估费率后仍有收敛空间。"
+      : evaluation.opportunityKind === "executable"
       ? "深度、正基差和正资金费率同时满足，属于可重点检查的开仓候选。"
       : evaluation.opportunityKind === "watch_small_size"
         ? "大额名义金额不满足，但小额档位可能有可执行空间。"
@@ -126,7 +151,9 @@ export function buildAgentAnalysis(evaluation: BasisEvaluation): AgentAnalysis {
           : "当前没有可执行套利信号。";
 
   const suggestedAction =
-    evaluation.opportunityKind === "executable"
+    evaluation.opportunityKind === "basis_convergence"
+      ? "先按最佳可执行档在 RToken 市场买入，并在 BG 合约市场做空等数量合约；不要裸露单腿，并设置负费率和价差继续扩大的退出上限。"
+      : evaluation.opportunityKind === "executable"
       ? "先小额复核订单簿深度和下次结算时间，再考虑 paper trade 记录。"
       : evaluation.opportunityKind === "watch_small_size"
         ? "切到更小名义金额实时复核；只在盘口、费率和成交深度同时成立时才考虑。"
@@ -145,7 +172,9 @@ export function buildAgentAnalysis(evaluation: BasisEvaluation): AgentAnalysis {
     fundingSummary: `当前资金费率 ${pct(evaluation.fundingRate, 4)}，年化 ${pct(
       evaluation.fundingApr
     )}；${fundingHistory}。`,
-    basisSummary: `开仓基差 ${pct(evaluation.entryBasis)}，退出基差 ${pct(
+    basisSummary: `跨市场开仓基差 ${pct(evaluation.entryBasis)}，扣费后的跨市场净价差 ${pct(
+      evaluation.basisEdge
+    )}，退出基差 ${pct(
       evaluation.closeBasis
     )}，扣费后 edge ${pct(evaluation.expectedEdge)}。`,
     riskNotes: riskNotes.length > 0 ? riskNotes : ["当前没有额外风险标记，仍需按真实盘口复核。"],

@@ -79,6 +79,11 @@ export function FocusPanel({
           <strong>{formatPercent(evaluation.entryBasis)}</strong>
         </div>
         <div>
+          <Zap size={16} />
+          <span>RToken 净基差</span>
+          <strong>{formatPercent(evaluation.basisEdge)}</strong>
+        </div>
+        <div>
           <DollarSign size={16} />
           <span>监控金额</span>
           <strong>{formatUsd(evaluation.notionalUsd)}</strong>
@@ -95,6 +100,15 @@ export function FocusPanel({
             {evaluation.fundingContext.recentNonZeroApr != null
               ? formatPercent(evaluation.fundingContext.recentNonZeroApr)
               : "近 10 期无"}
+          </strong>
+        </div>
+        <div>
+          <Clock3 size={16} />
+          <span>负费率可覆盖</span>
+          <strong>
+            {evaluation.negativeFundingBreakEvenPeriods != null
+              ? `约 ${evaluation.negativeFundingBreakEvenPeriods.toFixed(1)} 期`
+              : "无需消耗"}
           </strong>
         </div>
         <div>

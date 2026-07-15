@@ -5,6 +5,16 @@ import { SignalBadge } from "./SignalBadge";
 function opportunityHint(evaluation: BasisEvaluation | null): { title: string; detail: string } {
   if (!evaluation) return { title: "n/a", detail: "" };
 
+  if (evaluation.opportunityKind === "basis_convergence") {
+    const fundingHeadroom = evaluation.negativeFundingBreakEvenPeriods != null
+      ? ` · 负费率约可覆盖 ${evaluation.negativeFundingBreakEvenPeriods.toFixed(1)} 期`
+      : "";
+    return {
+      title: evaluation.opportunityLabel,
+      detail: `RToken 净基差 ${formatPercent(evaluation.basisEdge)}${fundingHeadroom}`
+    };
+  }
+
   if (evaluation.opportunityKind === "watch_small_size" && evaluation.bestExecutableBand) {
     return {
       title: evaluation.opportunityLabel,
@@ -62,7 +72,7 @@ export function OpportunityTable({
               <th>信号</th>
               <th>机会线索</th>
               <th>评分</th>
-              <th>Edge</th>
+              <th>净 Edge</th>
               <th>开仓基差</th>
               <th>当前费率</th>
               <th>最近非零</th>
@@ -77,7 +87,11 @@ export function OpportunityTable({
               return (
                 <tr
                   key={item.pair.id}
-                  className={`${evaluation?.opportunityKind === "executable" ? "row-open" : ""} ${
+                  className={`${
+                    evaluation?.opportunityKind === "executable" || evaluation?.opportunityKind === "basis_convergence"
+                      ? "row-open"
+                      : ""
+                  } ${
                     evaluation?.opportunityKind?.startsWith("watch_") ? "row-candidate" : ""
                   } ${evaluation?.opportunityKind === "data_risk" ? "row-risk" : ""} ${
                     item.pair.id === selectedPairId ? "row-selected" : ""
@@ -111,7 +125,12 @@ export function OpportunityTable({
                         : "muted"
                     }
                   >
-                    {evaluation ? formatPercent(evaluation.expectedEdge) : "n/a"}
+                    {evaluation ? (
+                      <div>
+                        <div>{formatPercent(evaluation.expectedEdge)}</div>
+                        <div className="pair-sub">RToken 基差 {formatPercent(evaluation.basisEdge)}</div>
+                      </div>
+                    ) : "n/a"}
                   </td>
                   <td>{evaluation ? formatPercent(evaluation.entryBasis) : "n/a"}</td>
                   <td>

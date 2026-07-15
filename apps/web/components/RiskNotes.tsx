@@ -10,7 +10,7 @@ export function RiskNotes() {
       <div className="risk-grid">
         <div>
           <strong>严格配对</strong>
-          <span>只用 rToken → 同名 USDT 永续映射，不扫 Earn、锁仓或债券型产品。</span>
+          <span>RToken 只配同名 USDT 永续；双合约只连接 Bitget RWA 与 Hyperliquid xyz 的同名、同价格尺度合约。</span>
         </div>
         <div>
           <strong>深度优先</strong>
@@ -18,7 +18,11 @@ export function RiskNotes() {
         </div>
         <div>
           <strong>扣费后 edge</strong>
-          <span>信号必须覆盖现货手续费、合约手续费和预计滑点。</span>
+          <span>信号必须覆盖双边完整往返手续费、订单簿滑点和比较窗口内的资金费率差。</span>
+        </div>
+        <div>
+          <strong>保证金隔离</strong>
+          <span>双合约需要在两个交易所分别留足保证金，价差收敛不代表过程中不会单边强平。</span>
         </div>
         <div>
           <strong>不自动下单</strong>
@@ -28,4 +32,3 @@ export function RiskNotes() {
     </section>
   );
 }
-

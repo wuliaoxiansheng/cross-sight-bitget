@@ -1,6 +1,7 @@
 import { config } from "../config/env.js";
 import type {
   FundingRate,
+  FuturesContractConfig,
   HistoricalFundingRate,
   FuturesTicker,
   OrderBook,
@@ -161,6 +162,25 @@ export class BitgetClient {
       `/api/v2/mix/market/tickers?productType=${productType}`
     );
     return data.map(normalizeFuturesTicker).filter((ticker) => ticker.symbol);
+  }
+
+  async getFuturesContracts(productType: string): Promise<FuturesContractConfig[]> {
+    const data = await this.get<Array<Record<string, unknown>>>(
+      `/api/v2/mix/market/contracts?productType=${productType}`
+    );
+
+    return data.map((contract) => ({
+      symbol: String(contract.symbol ?? ""),
+      baseCoin: String(contract.baseCoin ?? ""),
+      quoteCoin: String(contract.quoteCoin ?? ""),
+      status: String(contract.symbolStatus ?? ""),
+      symbolType: String(contract.symbolType ?? ""),
+      isRwa: String(contract.isRwa ?? "").toUpperCase() === "YES",
+      takerFeeRate: toNumber(contract.takerFeeRate, 0.0006),
+      makerFeeRate: toNumber(contract.makerFeeRate, 0.0002),
+      fundingIntervalHours: toNumber(contract.fundInterval, 8),
+      maxLeverage: toNumber(contract.maxLever)
+    })).filter((contract) => contract.symbol && contract.baseCoin);
   }
 
   async getFuturesOrderBook(symbol: string, productType: string, limit = 50): Promise<OrderBook> {

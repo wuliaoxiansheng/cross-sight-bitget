@@ -15,4 +15,3 @@ export const WATCHLIST: MarketPairConfig[] = [
     enabled: true
   }
 ];
-

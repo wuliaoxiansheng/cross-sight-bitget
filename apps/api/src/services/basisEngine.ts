@@ -3,6 +3,7 @@ import type {
   AgentAnalysis,
   BasisEvaluation,
   ExecutionBand,
+  ExecutionStrategy,
   FundingRate,
   HistoricalFundingRate,
   FundingContext,
@@ -153,7 +154,8 @@ function buildExecutionBand(input: {
   const entryBasis = spotEntry.vwap > 0 && futuresEntry.vwap > 0 ? futuresEntry.vwap / spotEntry.vwap - 1 : 0;
   const closeBasis = spotExit.vwap > 0 && futuresExit.vwap > 0 ? spotExit.vwap / futuresExit.vwap - 1 : 0;
   const expectedFundingEdge = input.fundingRate * config.fundingPeriodsToPrice;
-  const expectedEdge = entryBasis + expectedFundingEdge - input.feeDrag;
+  const basisEdge = entryBasis - input.feeDrag;
+  const expectedEdge = basisEdge + expectedFundingEdge;
   const depthOk =
     input.priceQualityOk &&
     spotEntry.filled &&
@@ -162,6 +164,14 @@ function buildExecutionBand(input: {
     futuresExit.filled &&
     spotEntry.vwap > 0 &&
     futuresEntry.vwap > 0;
+
+  const strategy = classifyExecutionStrategy({
+    depthOk,
+    entryBasis,
+    basisEdge,
+    expectedEdge,
+    fundingRate: input.fundingRate
+  });
 
   return {
     notionalUsd: input.notionalUsd,
@@ -173,8 +183,11 @@ function buildExecutionBand(input: {
     futuresCoverVwap: futuresExit.vwap,
     entryBasis: ensureFinite(entryBasis),
     closeBasis: ensureFinite(closeBasis),
+    basisEdge: ensureFinite(basisEdge),
     expectedFundingEdge,
-    expectedEdge: ensureFinite(expectedEdge)
+    expectedEdge: ensureFinite(expectedEdge),
+    strategy,
+    negativeFundingBreakEvenPeriods: calculateNegativeFundingBreakEvenPeriods(basisEdge, input.fundingRate)
   };
 }
 
@@ -204,21 +217,33 @@ function buildExecutionBands(input: {
   );
 }
 
-function isExecutableBand(band: ExecutionBand, fundingRate: number): boolean {
+function classifyExecutionStrategy(input: {
+  depthOk: boolean;
+  entryBasis: number;
+  basisEdge: number;
+  expectedEdge: number;
+  fundingRate: number;
+}): ExecutionStrategy {
+  if (!input.depthOk || input.entryBasis <= 0 || input.expectedEdge < config.openEdgeThreshold) {
+    return "none";
+  }
+
+  if (input.fundingRate > 0) return "funding_basis";
+  if (input.basisEdge >= config.openEdgeThreshold) return "basis_convergence";
+  return "none";
+}
+
+function pickBestExecutableBand(bands: ExecutionBand[]): ExecutionBand | null {
   return (
-    band.depthOk &&
-    band.entryBasis > 0 &&
-    band.expectedEdge >= config.openEdgeThreshold &&
-    fundingRate > 0
+    bands
+      .filter((band) => band.strategy !== "none")
+      .sort((a, b) => b.notionalUsd - a.notionalUsd || b.expectedEdge - a.expectedEdge)[0] ?? null
   );
 }
 
-function pickBestExecutableBand(bands: ExecutionBand[], fundingRate: number): ExecutionBand | null {
-  return (
-    bands
-      .filter((band) => isExecutableBand(band, fundingRate))
-      .sort((a, b) => b.notionalUsd - a.notionalUsd || b.expectedEdge - a.expectedEdge)[0] ?? null
-  );
+function calculateNegativeFundingBreakEvenPeriods(basisEdge: number, fundingRate: number): number | null {
+  if (fundingRate >= 0 || basisEdge <= 0) return null;
+  return basisEdge / Math.abs(fundingRate);
 }
 
 export function calculateFundingApr(fundingRate: number, intervalHours: number): number {
@@ -323,7 +348,8 @@ export function evaluateBasisOpportunity(input: {
   // heuristic screen, not a holding-period P&L — tune fundingPeriodsToPrice to
   // the horizon you actually intend to hold.
   const expectedFundingEdge = input.funding.fundingRate * config.fundingPeriodsToPrice;
-  const expectedEdge = entryBasis + expectedFundingEdge - feeDrag;
+  const basisEdge = entryBasis - feeDrag;
+  const expectedEdge = basisEdge + expectedFundingEdge;
   const priceQualityIssues = [
     checkBookTickerConsistency({
       label: input.pair.spotSymbol,
@@ -347,7 +373,13 @@ export function evaluateBasisOpportunity(input: {
     feeDrag,
     priceQualityOk
   });
-  const bestExecutableBand = pickBestExecutableBand(executionBands, input.funding.fundingRate);
+  const requestedBand = executionBands.find((band) => band.notionalUsd === requestedNotional);
+  const strategy = requestedBand?.strategy ?? "none";
+  const negativeFundingBreakEvenPeriods = calculateNegativeFundingBreakEvenPeriods(
+    basisEdge,
+    input.funding.fundingRate
+  );
+  const bestExecutableBand = pickBestExecutableBand(executionBands);
   const depthOk =
     priceQualityOk &&
     spotEntry.filled &&
@@ -362,7 +394,8 @@ export function evaluateBasisOpportunity(input: {
     entryBasis,
     closeBasis,
     expectedEdge,
-    fundingRate: input.funding.fundingRate
+    fundingRate: input.funding.fundingRate,
+    strategy
   });
   const opportunityKind = classifyOpportunityKind({
     status,
@@ -373,6 +406,7 @@ export function evaluateBasisOpportunity(input: {
     entryBasis,
     expectedEdge,
     fundingRate: input.funding.fundingRate,
+    strategy,
     fundingContext
   });
   const opportunityLabel = buildOpportunityLabel({
@@ -380,7 +414,8 @@ export function evaluateBasisOpportunity(input: {
     bestExecutableBand,
     requestedNotional,
     fundingContext,
-    expectedEdge
+    expectedEdge,
+    strategy
   });
   const opportunityNotes = buildOpportunityNotes({
     opportunityKind,
@@ -388,12 +423,15 @@ export function evaluateBasisOpportunity(input: {
     requestedNotional,
     fundingContext,
     entryBasis,
-    expectedEdge
+    expectedEdge,
+    basisEdge,
+    strategy
   });
   const opportunityScore = scoreOpportunity({
     opportunityKind,
     bestExecutableBand,
     entryBasis,
+    basisEdge,
     expectedEdge,
     fundingApr,
     fundingContext,
@@ -408,7 +446,8 @@ export function evaluateBasisOpportunity(input: {
     entryBasis,
     closeBasis,
     expectedEdge,
-    fundingRate: input.funding.fundingRate
+    fundingRate: input.funding.fundingRate,
+    strategy
   });
 
   const evaluation: BasisEvaluation = {
@@ -427,8 +466,11 @@ export function evaluateBasisOpportunity(input: {
     entryBasis: ensureFinite(entryBasis),
     closeBasis: ensureFinite(closeBasis),
     feeDrag,
+    basisEdge: ensureFinite(basisEdge),
     expectedFundingEdge,
     expectedEdge: ensureFinite(expectedEdge),
+    strategy,
+    negativeFundingBreakEvenPeriods,
     fundingRate: input.funding.fundingRate,
     fundingApr,
     fundingContext,
@@ -456,15 +498,14 @@ function classifySignal(input: {
   closeBasis: number;
   expectedEdge: number;
   fundingRate: number;
+  strategy: ExecutionStrategy;
 }): BasisEvaluation["status"] {
   if (!input.depthOk) return "WAIT";
 
+  if (input.strategy !== "none") return "OPEN";
+
   if (input.fundingRate <= 0 || input.closeBasis > 0) {
     return "CLOSE";
-  }
-
-  if (input.entryBasis > 0 && input.expectedEdge >= config.openEdgeThreshold && input.fundingRate > 0) {
-    return "OPEN";
   }
 
   if (input.fundingRate > 0 && input.entryBasis > 0) {
@@ -483,10 +524,13 @@ function classifyOpportunityKind(input: {
   entryBasis: number;
   expectedEdge: number;
   fundingRate: number;
+  strategy: ExecutionStrategy;
   fundingContext: FundingContext;
 }): BasisEvaluation["opportunityKind"] {
   if (!input.priceQualityOk) return "data_risk";
-  if (input.status === "OPEN") return "executable";
+  if (input.status === "OPEN") {
+    return input.strategy === "basis_convergence" ? "basis_convergence" : "executable";
+  }
 
   if (input.bestExecutableBand && input.bestExecutableBand.notionalUsd < input.requestedNotional) {
     return "watch_small_size";
@@ -522,8 +566,10 @@ function buildOpportunityLabel(input: {
   requestedNotional: number;
   fundingContext: FundingContext;
   expectedEdge: number;
+  strategy: ExecutionStrategy;
 }): string {
-  if (input.opportunityKind === "executable") return "可开仓";
+  if (input.opportunityKind === "basis_convergence") return "跨市场价差收敛";
+  if (input.opportunityKind === "executable") return "费率 + 价差机会";
   if (input.opportunityKind === "watch_small_size" && input.bestExecutableBand) {
     return `小额可试 ${formatMoney(input.bestExecutableBand.notionalUsd)}`;
   }
@@ -545,7 +591,16 @@ function buildOpportunityNotes(input: {
   fundingContext: FundingContext;
   entryBasis: number;
   expectedEdge: number;
+  basisEdge: number;
+  strategy: ExecutionStrategy;
 }): string[] {
+  if (input.opportunityKind === "basis_convergence") {
+    return [
+      `同一标的跨 RToken 现货与 BG 合约市场的价差，扣除四腿手续费后仍有 ${pct(input.basisEdge)}，不依赖正资金费率。`,
+      "盈利前提是两个市场的价格收敛；负资金费率和收敛时间仍会侵蚀收益。"
+    ];
+  }
+
   if (input.opportunityKind === "executable") {
     return ["当前名义金额满足深度、正基差、正资金费率和扣费后 edge。"];
   }
@@ -589,12 +644,17 @@ function scoreOpportunity(input: {
   opportunityKind: BasisEvaluation["opportunityKind"];
   bestExecutableBand: ExecutionBand | null;
   entryBasis: number;
+  basisEdge: number;
   expectedEdge: number;
   fundingApr: number;
   fundingContext: FundingContext;
   spotVolumeUsd: number;
 }): number {
   const volumeBoost = Math.min(Math.log10(Math.max(input.spotVolumeUsd, 1)) / 20, 0.5);
+
+  if (input.opportunityKind === "basis_convergence") {
+    return 110 + input.basisEdge * 1_000 + input.expectedEdge * 500 + volumeBoost;
+  }
 
   if (input.opportunityKind === "executable") {
     return 100 + input.expectedEdge * 1_000 + Math.max(input.fundingApr, 0) * 2 + volumeBoost;
@@ -629,6 +689,7 @@ function buildReason(input: {
   closeBasis: number;
   expectedEdge: number;
   fundingRate: number;
+  strategy: ExecutionStrategy;
 }): string {
   if (!input.priceQualityOk) {
     return input.priceQualityReason ?? "盘口与 ticker 偏离过大，先不生成开仓信号。";
@@ -647,6 +708,9 @@ function buildReason(input: {
   }
 
   if (input.status === "OPEN") {
+    if (input.strategy === "basis_convergence") {
+      return "同一标的在 BG 合约市场相对 RToken 现货市场存在可成交溢价，扣除四腿手续费和预估资金费率后仍达到跨市场收敛阈值。";
+    }
     return "合约相对 RToken 现货存在溢价，且资金费率为正，扣除手续费后仍达到开仓阈值。";
   }
 

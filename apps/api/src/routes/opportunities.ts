@@ -3,9 +3,11 @@ import { config } from "../config/env.js";
 import { WATCHLIST } from "../data/pairs.js";
 import { evaluateBasisOpportunity } from "../services/basisEngine.js";
 import { BitgetClient } from "../services/bitgetClient.js";
+import { evaluateCrossVenueOpportunity } from "../services/crossVenueEngine.js";
 import { opportunityScanCache } from "../services/opportunityScanCache.js";
 import { scanRTokenOpportunities } from "../services/opportunityScanner.js";
 import { discoverRTokenPairs } from "../services/rtokenDiscovery.js";
+import { HyperliquidClient } from "../services/hyperliquidClient.js";
 import type { MarketPairConfig } from "../types/market.js";
 
 type LiveQuery = {
@@ -17,6 +19,12 @@ type LiveQuery = {
 
 type LiveAllQuery = {
   limit?: string;
+  notionalUsd?: string;
+};
+
+type CrossVenueLiveQuery = {
+  pairId?: string;
+  ticker?: string;
   notionalUsd?: string;
 };
 
@@ -80,6 +88,7 @@ async function throttleLiveScan(_request: FastifyRequest, reply: FastifyReply): 
 
 export async function opportunityRoutes(app: FastifyInstance) {
   const bitget = new BitgetClient();
+  const hyperliquid = new HyperliquidClient();
 
   app.get("/opportunities/snapshot", async () => {
     return {
@@ -186,4 +195,41 @@ export async function opportunityRoutes(app: FastifyInstance) {
       };
     }
   );
+
+  app.get<{ Querystring: CrossVenueLiveQuery }>("/opportunities/cross-venue/live", async (request) => {
+    const pairId = request.query.pairId?.trim().toLowerCase();
+    const ticker = request.query.ticker?.trim().toUpperCase();
+    const item = opportunityScanCache.getSnapshot().crossVenueScan?.items.find((candidate) =>
+      (pairId && candidate.pair.id.toLowerCase() === pairId) ||
+      (ticker && candidate.pair.ticker.toUpperCase() === ticker)
+    );
+
+    if (!item) {
+      return { error: "PAIR_NOT_FOUND", message: `No cross-venue pair found for ${pairId ?? ticker ?? "unknown"}` };
+    }
+
+    const notionalUsd = Number(request.query.notionalUsd ?? config.defaultNotionalUsd);
+    const safeNotional = Number.isFinite(notionalUsd) ? notionalUsd : config.defaultNotionalUsd;
+    const [bitgetBook, hyperliquidBook, bitgetFunding, hyperliquidMarkets] = await Promise.all([
+      bitget.getFuturesOrderBook(item.pair.bitgetSymbol, item.pair.bitgetProductType),
+      hyperliquid.getOrderBook(item.pair.hyperliquidCoin),
+      bitget.getCurrentFundingRate(item.pair.bitgetSymbol, item.pair.bitgetProductType),
+      hyperliquid.getPerpMarkets()
+    ]);
+    const hyperliquidMarket = hyperliquidMarkets.find((market) => market.coin === item.pair.hyperliquidCoin);
+    if (!hyperliquidMarket) {
+      return { error: "PAIR_NOT_FOUND", message: `Hyperliquid market ${item.pair.hyperliquidCoin} is unavailable` };
+    }
+
+    return {
+      data: evaluateCrossVenueOpportunity({
+        pair: item.pair,
+        notionalUsd: safeNotional,
+        bitgetBook,
+        hyperliquidBook,
+        bitgetFundingRate: bitgetFunding.fundingRate,
+        hyperliquidFundingRate: hyperliquidMarket.fundingRate
+      })
+    };
+  });
 }

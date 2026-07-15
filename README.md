@@ -1,12 +1,19 @@
-# Cross Sight · RToken Basis Sentry
+# Cross Sight · Multi-Market Basis Sentry
 
-Bitget RToken 费率基差监控工具。当前版本会自动发现 Bitget 热门 RToken 现货，并严格映射到同名 USDT 永续合约，例如 `RSPYUSDT` → `SPYUSDT`、`RSPCXUSDT` → `SPCXUSDT`，监控现货/合约基差、资金费率、订单簿深度，并生成 paper trading 预览。
+美股映射资产的跨市场价差与费率监控工具。当前版本并行扫描两类机会：
+
+- `双合约跨市场`：Bitget RWA 永续与 Hyperliquid `xyz` HIP-3 永续，例如 `SKHYUSDT ↔ xyz:SKHY`。
+- `RToken 基差`：Bitget RToken 现货与同名 USDT 永续，例如 `RSPCXUSDT ↔ SPCXUSDT`。
+
+两类策略独立发现、独立计算，不把双合约交易误标成现货/合约交易。
 
 ## 项目定位
 
 这个项目不是自动下单机器人，MVP 只做只读行情和模拟记录：
 
 - 自动扫描热门 RToken 现货与合约之间的可成交基差。
+- 自动发现 Bitget RWA 与 Hyperliquid `xyz` 中同名、同价格尺度的永续合约，计算正反两个对冲方向。
+- 识别不依赖正资金费率的 RToken 基差收敛机会。
 - 监控资金费率是否足以覆盖手续费和滑点。
 - 用订单簿 VWAP 估算 5,000-10,000 USDT 规模是否真的能成交。
 - 输出 `OPEN` / `HOLD` / `CLOSE` / `WAIT` 信号。
@@ -21,10 +28,21 @@ Bitget RToken 费率基差监控工具。当前版本会自动发现 Bitget 热�
   做空同名 USDT 永续合约
   收取资金费率并等待基差回归
 
+当资金费率为零或略负，但合约溢价本身足以覆盖四腿手续费和预估费率：
+  买入 RToken 现货
+  做空同数量 USDT 永续合约
+  等待同一标的在两个市场的价差收敛，不把资金费率当作主要收益来源
+
 当资金费率归零/转负，或现货价格反超合约：
   卖出现货
   买回合约
   锁定基差和资金费率收益
+
+双合约跨市场：
+  方向 A = 多 Hyperliquid / 空 Bitget
+  方向 B = 多 Bitget / 空 Hyperliquid
+  两个方向都按 L2 VWAP、两边资金费率和完整往返手续费计算
+  只展示净 Edge 更高的方向，并把 OPEN 机会排在最前面
 ```
 
 ## 技术栈
@@ -120,6 +138,8 @@ docker compose up --build
 ```text
 DATABASE_URL=postgresql://cross_sight:cross_sight@localhost:5432/cross_sight?schema=public
 BITGET_BASE_URL=https://api.bitget.com
+HYPERLIQUID_INFO_URL=https://api.hyperliquid.xyz/info
+HYPERLIQUID_DEX=xyz
 CORS_ORIGIN=http://localhost:3000
 DEFAULT_NOTIONAL_USD=5000
 OPEN_EDGE_THRESHOLD=0.003
@@ -130,13 +150,17 @@ FEISHU_KEYWORD=美股
 FEISHU_NOTIFY_COOLDOWN_MS=1800000
 FEISHU_NOTIFY_MAX_ITEMS=5
 ORDER_BOOK_TICKER_MAX_DEVIATION=0.02
+HYPERLIQUID_TAKER_FEE_RATE=0.0009
+CROSS_VENUE_FUNDING_HORIZON_HOURS=8
+CROSS_VENUE_PRICE_RATIO_MIN=0.8
+CROSS_VENUE_PRICE_RATIO_MAX=1.2
 NEXT_PUBLIC_BASE_PATH=
 NEXT_PUBLIC_API_BASE_URL=http://localhost:4000
 ```
 
 ### 飞书机会推送
 
-配置 `FEISHU_WEBHOOK_URL` 后，服务端后台扫描发现真实可执行的 `OPEN` 信号时会自动推送飞书文本消息。
+配置 `FEISHU_WEBHOOK_URL` 后，服务端后台扫描发现真实可执行的 `OPEN` 信号时会自动推送飞书文本消息。消息会区分“双合约跨市场”“RToken 基差收敛”和“费率 + 价差”。
 
 推送条件：
 
@@ -205,6 +229,7 @@ GET /opportunities/snapshot
 ```text
 status          warming / scanning / ready / stale / error
 latestScan      最近一次完整扫描
+crossVenueScan  Bitget RWA ↔ Hyperliquid xyz 双合约扫描
 scanning        后台是否正在扫描下一轮
 completedAt     最近一次完成时间
 nextRunAt       下一轮预计开始时间
@@ -222,7 +247,8 @@ GET /opportunities/stream
 前端工作台支持两类交互：
 
 ```text
-搜索        输入 RSPCX、SPCXUSDT、COIN、NVDA 等关键词，本地即时过滤扫描结果
+市场切换    双合约跨市场 / RToken 现货合约
+搜索        输入 SKHY、NVDA、RSPCX、SPCXUSDT 等关键词，本地即时过滤扫描结果
 筛选        全部 / 有机会 / 费率归零 / 最近非零 / 深度不足 / 无机会
 点击标的    右侧 Agent 重新调用实时接口，刷新该标的的订单簿、资金费率、基差和分析结论
 ```
@@ -239,6 +265,8 @@ GET /opportunities/live-all?notionalUsd=5000
 requestedLimit       请求扫描上限；null 表示全量扫描
 scannedPairs         实际完成扫描的配对数量
 openCount            有开仓机会的数量
+basisOpportunityCount 其中“RToken 基差收敛”机会数量
+fundingOpportunityCount 其中“费率 + 价差”机会数量
 closeCount           更像平仓窗口的数量
 depthIssueCount      深度不足的数量
 items                每个 RToken/合约配对的扫描结果
@@ -247,6 +275,8 @@ items                每个 RToken/合约配对的扫描结果
 生产页面不直接依赖 `/live-all`，避免用户打开页面时同步等待所有 Bitget 请求。
 
 当前后台默认是全量扫描：先把 `WATCHLIST` 里的固定关注标的置顶，例如 `RSPCXUSDT / SPCXUSDT`，再补充 Bitget 自动发现的全部严格配对 RToken。前端搜索不会再因为 top 100 截断而找不到低成交额标的。
+
+双合约扫描同样不是 top 100：服务端读取 Bitget 全量 RWA 永续与 Hyperliquid `xyz` 全量未下架永续，按基础 ticker 精确连接，并用 0.8-1.2 的价格比例防止同名不同物产生假配对。每个配对都会读取两边 L2 盘口。
 
 资金费率字段需要分开看：
 
@@ -285,8 +315,29 @@ fundingContext     当前费率状态 + 最近 10 期历史费率摘要
 marketSession      美股交易中 / 盘前盘后 / 周末休市 / 节假日休市
 analysis           Agent 结构化分析：信号、费率、基差、风险点、建议动作
 expectedEdge       基差 + 预计资金费率 - 手续费
+basisEdge          开仓基差 - 四腿手续费，不包含资金费率
+strategy           funding_basis / basis_convergence / none
+negativeFundingBreakEvenPeriods 负费率静态不变时，跨市场净价差可覆盖的理论结算期数
 depthOk            当前订单簿是否能覆盖名义金额
 narratorText       Agent 解释文本
+```
+
+### 双合约跨市场实时机会
+
+```http
+GET /opportunities/cross-venue/live?pairId=skhy_bitget_xyz&notionalUsd=5000
+```
+
+重点字段：
+
+```text
+direction                 LONG_HYPERLIQUID_SHORT_BITGET / LONG_BITGET_SHORT_HYPERLIQUID
+longVenue / shortVenue    实际做多、做空市场
+entryBasis                按两边入场 VWAP 计算的可成交价差
+expectedFundingEdge       统一到 8 小时窗口后的净费率贡献
+feeDrag                   两边开仓和平仓共四次 taker 的费用
+expectedEdge              entryBasis + expectedFundingEdge - feeDrag
+executionBands            500 / 1000 / 2500 / 5000 / 10000 USDT 深度档位
 ```
 
 ### Paper trade 预览
@@ -319,6 +370,8 @@ GET /paper-trades/preview?pairId=rspcx_spcx_perp&notionalUsd=5000&balance=10000
 entry_basis = futures_short_vwap / spot_buy_vwap - 1
 ```
 
+双合约策略使用同一公式，但分母是较便宜市场的多头 VWAP，分子是较贵市场的空头 VWAP；系统会对两个方向分别计算。
+
 ### 资金费率年化
 
 ```text
@@ -331,9 +384,25 @@ funding_apr = funding_rate * (24 / funding_interval_hours) * 365
 expected_edge =
   entry_basis
   + funding_rate * expected_funding_periods
-  - spot_fee_rate
-  - futures_fee_rate
+  - 2 * (spot_fee_rate + futures_fee_rate)
+
+basis_edge =
+  entry_basis
+  - 2 * (spot_fee_rate + futures_fee_rate)
 ```
+
+双合约净 Edge：
+
+```text
+funding_edge = short_funding_rate * horizon / short_interval
+             - long_funding_rate * horizon / long_interval
+
+expected_edge = short_entry_vwap / long_entry_vwap - 1
+              + funding_edge
+              - 2 * (bitget_taker_fee + hyperliquid_taker_fee)
+```
+
+默认 Hyperliquid HIP-3 taker 费率按每次 `0.09%` 保守估算，Bitget 每次 `0.06%`，因此双边完整往返费用假设为 `0.30%`。实际账户等级不同，应调整 `HYPERLIQUID_TAKER_FEE_RATE`。
 
 默认：
 
@@ -347,7 +416,9 @@ OPEN_EDGE_THRESHOLD = 0.3%
 
 ```text
 OPEN
-  深度足够，合约相对现货有溢价，资金费率为正，扣费后 edge 达标。
+  费率 + 价差：深度足够，资金费率为正，扣费后 expected edge 达标。
+  RToken 基差收敛：资金费率可为零或负，但现货/合约净价差和计入预估费率后的 expected edge 都达标。
+  双合约跨市场：两家永续之间的可成交价差、净费率贡献和往返费用合计后达标。
 
 HOLD
   正基差和正资金费率仍在，但新增开仓 edge 不够。

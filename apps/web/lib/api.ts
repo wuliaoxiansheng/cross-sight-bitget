@@ -2,12 +2,15 @@ export type SignalStatus = "OPEN" | "HOLD" | "CLOSE" | "WAIT";
 
 export type OpportunityKind =
   | "executable"
+  | "basis_convergence"
   | "watch_small_size"
   | "watch_funding_return"
   | "watch_near_edge"
   | "exit_check"
   | "data_risk"
   | "none";
+
+export type ExecutionStrategy = "funding_basis" | "basis_convergence" | "none";
 
 export type ExecutionBand = {
   notionalUsd: number;
@@ -19,8 +22,11 @@ export type ExecutionBand = {
   futuresCoverVwap: number;
   entryBasis: number;
   closeBasis: number;
+  basisEdge: number;
   expectedFundingEdge: number;
   expectedEdge: number;
+  strategy: ExecutionStrategy;
+  negativeFundingBreakEvenPeriods: number | null;
 };
 
 export type FundingContext = {
@@ -76,8 +82,11 @@ export type BasisEvaluation = {
   entryBasis: number;
   closeBasis: number;
   feeDrag: number;
+  basisEdge: number;
   expectedFundingEdge: number;
   expectedEdge: number;
+  strategy: ExecutionStrategy;
+  negativeFundingBreakEvenPeriods: number | null;
   fundingRate: number;
   fundingApr: number;
   fundingContext: FundingContext;
@@ -108,6 +117,8 @@ export type OpportunityScan = {
   discoveredPairs: number;
   scannedPairs: number;
   openCount: number;
+  basisOpportunityCount: number;
+  fundingOpportunityCount: number;
   candidateCount: number;
   closeCount: number;
   noOpportunityCount: number;
@@ -116,9 +127,96 @@ export type OpportunityScan = {
   items: OpportunityScanItem[];
 };
 
+export type CrossVenueName = "bitget" | "hyperliquid_xyz";
+export type CrossVenueDirection = "LONG_HYPERLIQUID_SHORT_BITGET" | "LONG_BITGET_SHORT_HYPERLIQUID";
+
+export type CrossVenuePair = {
+  id: string;
+  ticker: string;
+  bitgetSymbol: string;
+  bitgetProductType: string;
+  hyperliquidCoin: string;
+  bitgetTakerFeeRate: number;
+  hyperliquidTakerFeeRate: number;
+  bitgetFundingIntervalHours: number;
+  hyperliquidFundingIntervalHours: number;
+  maxNotionalUsd: number;
+};
+
+export type CrossVenueExecutionBand = {
+  notionalUsd: number;
+  depthOk: boolean;
+  direction: CrossVenueDirection;
+  longVenue: CrossVenueName;
+  shortVenue: CrossVenueName;
+  baseQuantity: number;
+  longEntryVwap: number;
+  shortEntryVwap: number;
+  longExitVwap: number;
+  shortExitVwap: number;
+  entryBasis: number;
+  closeBasis: number;
+  feeDrag: number;
+  expectedFundingEdge: number;
+  expectedEdge: number;
+};
+
+export type CrossVenueEvaluation = {
+  pair: CrossVenuePair;
+  status: "OPEN" | "WATCH" | "WAIT";
+  opportunityLabel: string;
+  opportunityScore: number;
+  direction: CrossVenueDirection;
+  longVenue: CrossVenueName;
+  shortVenue: CrossVenueName;
+  notionalUsd: number;
+  baseQuantity: number;
+  longEntryVwap: number;
+  shortEntryVwap: number;
+  longExitVwap: number;
+  shortExitVwap: number;
+  entryBasis: number;
+  closeBasis: number;
+  feeDrag: number;
+  expectedFundingEdge: number;
+  expectedEdge: number;
+  bitgetFundingRate: number;
+  hyperliquidFundingRate: number;
+  fundingHorizonHours: number;
+  depthOk: boolean;
+  reason: string;
+  riskNotes: string[];
+  timestamp: string;
+  executionBands: CrossVenueExecutionBand[];
+  bestExecutableBand: CrossVenueExecutionBand | null;
+};
+
+export type CrossVenueScanItem = {
+  pair: CrossVenuePair;
+  bitgetQuoteVolume: number;
+  hyperliquidQuoteVolume: number;
+  evaluation: CrossVenueEvaluation | null;
+  error: string | null;
+};
+
+export type CrossVenueOpportunityScan = {
+  generatedAt: string;
+  notionalUsd: number;
+  discoveredPairs: number;
+  scannedPairs: number;
+  openCount: number;
+  watchCount: number;
+  noOpportunityCount: number;
+  depthIssueCount: number;
+  errorCount: number;
+  fundingHorizonHours: number;
+  items: CrossVenueScanItem[];
+};
+
 export type OpportunitySnapshot = {
   status: "warming" | "scanning" | "ready" | "stale" | "error";
   latestScan: OpportunityScan | null;
+  crossVenueScan: CrossVenueOpportunityScan | null;
   scanning: boolean;
   startedAt: string | null;
   completedAt: string | null;
@@ -148,6 +246,8 @@ export const sampleScan: OpportunityScan = {
   discoveredPairs: 6,
   scannedPairs: 6,
   openCount: 1,
+  basisOpportunityCount: 0,
+  fundingOpportunityCount: 1,
   candidateCount: 0,
   closeCount: 1,
   noOpportunityCount: 4,
@@ -171,7 +271,7 @@ export const sampleScan: OpportunityScan = {
         },
         status: "OPEN",
         opportunityKind: "executable",
-        opportunityLabel: "可开仓",
+        opportunityLabel: "费率 + 价差机会",
         opportunityScore: 108,
         opportunityNotes: ["当前名义金额满足深度、正基差、正资金费率和扣费后 edge。"],
         notionalUsd: 5000,
@@ -182,9 +282,12 @@ export const sampleScan: OpportunityScan = {
         futuresCoverVwap: 181.55,
         entryBasis: 0.0100,
         closeBasis: -0.013,
-        feeDrag: 0.0016,
+        feeDrag: 0.0032,
+        basisEdge: 0.0068,
         expectedFundingEdge: 0.00023,
-        expectedEdge: 0.00863,
+        expectedEdge: 0.00703,
+        strategy: "funding_basis",
+        negativeFundingBreakEvenPeriods: null,
         fundingRate: 0.00023,
         fundingApr: 0.252,
         fundingContext: {
@@ -247,9 +350,12 @@ export const sampleScan: OpportunityScan = {
         futuresCoverVwap: 739.3,
         entryBasis: -0.0011,
         closeBasis: 0.0005,
-        feeDrag: 0.0016,
+        feeDrag: 0.0032,
+        basisEdge: -0.0043,
         expectedFundingEdge: 0,
-        expectedEdge: -0.0027,
+        expectedEdge: -0.0043,
+        strategy: "none",
+        negativeFundingBreakEvenPeriods: null,
         fundingRate: 0,
         fundingApr: 0,
         fundingContext: {
@@ -305,6 +411,7 @@ export async function getOpportunitySnapshot(): Promise<OpportunitySnapshot> {
     return {
       status: "error",
       latestScan: null,
+      crossVenueScan: null,
       scanning: false,
       startedAt: null,
       completedAt: null,
@@ -339,9 +446,29 @@ export async function getLiveOpportunity(pair: BasisEvaluation["pair"], notional
   return payload.data;
 }
 
+export async function getLiveCrossVenueOpportunity(
+  pair: CrossVenuePair,
+  notionalUsd: number
+): Promise<CrossVenueEvaluation> {
+  const params = new URLSearchParams({
+    pairId: pair.id,
+    ticker: pair.ticker,
+    notionalUsd: String(notionalUsd)
+  });
+  const response = await fetch(`${API_BASE_URL}/opportunities/cross-venue/live?${params.toString()}`, {
+    cache: "no-store"
+  });
+  if (!response.ok) throw new Error(`API responded with ${response.status}`);
+
+  const payload = (await response.json()) as { data?: CrossVenueEvaluation; error?: string; message?: string };
+  if (!payload.data) throw new Error(payload.message ?? payload.error ?? "Missing cross-venue opportunity data");
+  return payload.data;
+}
+
 export function statusLabel(item: OpportunityScanItem): string {
   if (item.error) return "接口异常";
   if (!item.evaluation) return "接口异常";
+  if (item.evaluation.opportunityKind === "basis_convergence") return "RToken 基差";
   if (item.evaluation.opportunityKind === "executable") return "有机会";
   if (item.evaluation.opportunityKind === "watch_small_size") return "小额机会";
   if (item.evaluation.opportunityKind === "watch_funding_return") return "等费率";
@@ -354,7 +481,10 @@ export function statusLabel(item: OpportunityScanItem): string {
 
 export function statusTone(item: OpportunityScanItem): "good" | "bad" | "warn" | "muted" {
   if (item.error || !item.evaluation) return "bad";
-  if (item.evaluation.opportunityKind === "executable") return "good";
+  if (
+    item.evaluation.opportunityKind === "executable" ||
+    item.evaluation.opportunityKind === "basis_convergence"
+  ) return "good";
   if (
     item.evaluation.opportunityKind === "watch_small_size" ||
     item.evaluation.opportunityKind === "watch_funding_return" ||

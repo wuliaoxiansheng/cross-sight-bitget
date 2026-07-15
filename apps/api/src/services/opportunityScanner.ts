@@ -24,6 +24,7 @@ async function fallbackFundingHistory() {
 
 function sortItems(a: OpportunityScanItem, b: OpportunityScanItem): number {
   const kindRank = {
+    basis_convergence: 0,
     executable: 0,
     watch_small_size: 1,
     watch_funding_return: 2,
@@ -121,6 +122,12 @@ export async function scanRTokenOpportunities(input: {
 
   const sortedItems = items.sort(sortItems);
   const openCount = sortedItems.filter((item) => item.evaluation?.status === "OPEN").length;
+  const basisOpportunityCount = sortedItems.filter(
+    (item) => item.evaluation?.opportunityKind === "basis_convergence"
+  ).length;
+  const fundingOpportunityCount = sortedItems.filter(
+    (item) => item.evaluation?.opportunityKind === "executable"
+  ).length;
   const candidateCount = sortedItems.filter((item) =>
     ["watch_small_size", "watch_funding_return", "watch_near_edge"].includes(item.evaluation?.opportunityKind ?? "")
   ).length;
@@ -135,6 +142,8 @@ export async function scanRTokenOpportunities(input: {
     discoveredPairs: discoveredPairs.length,
     scannedPairs: sortedItems.length,
     openCount,
+    basisOpportunityCount,
+    fundingOpportunityCount,
     candidateCount,
     closeCount,
     noOpportunityCount: sortedItems.length - openCount - closeCount - errorCount,

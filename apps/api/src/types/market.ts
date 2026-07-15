@@ -20,6 +20,19 @@ export type SpotSymbolConfig = {
   minTradeUsdt: number;
 };
 
+export type FuturesContractConfig = {
+  symbol: string;
+  baseCoin: string;
+  quoteCoin: string;
+  status: string;
+  symbolType: string;
+  isRwa: boolean;
+  takerFeeRate: number;
+  makerFeeRate: number;
+  fundingIntervalHours: number;
+  maxLeverage: number;
+};
+
 export type OrderBookLevel = {
   price: number;
   size: number;
@@ -108,12 +121,15 @@ export type OpportunityStatus = "OPEN" | "HOLD" | "CLOSE" | "WAIT";
 
 export type OpportunityKind =
   | "executable"
+  | "basis_convergence"
   | "watch_small_size"
   | "watch_funding_return"
   | "watch_near_edge"
   | "exit_check"
   | "data_risk"
   | "none";
+
+export type ExecutionStrategy = "funding_basis" | "basis_convergence" | "none";
 
 export type ExecutionBand = {
   notionalUsd: number;
@@ -125,8 +141,11 @@ export type ExecutionBand = {
   futuresCoverVwap: number;
   entryBasis: number;
   closeBasis: number;
+  basisEdge: number;
   expectedFundingEdge: number;
   expectedEdge: number;
+  strategy: ExecutionStrategy;
+  negativeFundingBreakEvenPeriods: number | null;
 };
 
 export type DiscoveredRTokenPair = {
@@ -152,8 +171,11 @@ export type BasisEvaluation = {
   entryBasis: number;
   closeBasis: number;
   feeDrag: number;
+  basisEdge: number;
   expectedFundingEdge: number;
   expectedEdge: number;
+  strategy: ExecutionStrategy;
+  negativeFundingBreakEvenPeriods: number | null;
   fundingRate: number;
   fundingApr: number;
   fundingContext: FundingContext;
@@ -184,6 +206,8 @@ export type OpportunityScan = {
   discoveredPairs: number;
   scannedPairs: number;
   openCount: number;
+  basisOpportunityCount: number;
+  fundingOpportunityCount: number;
   candidateCount: number;
   closeCount: number;
   noOpportunityCount: number;
@@ -192,9 +216,114 @@ export type OpportunityScan = {
   items: OpportunityScanItem[];
 };
 
+export type CrossVenueName = "bitget" | "hyperliquid_xyz";
+
+export type CrossVenueDirection =
+  | "LONG_HYPERLIQUID_SHORT_BITGET"
+  | "LONG_BITGET_SHORT_HYPERLIQUID";
+
+export type HyperliquidPerpMarket = {
+  coin: string;
+  ticker: string;
+  maxLeverage: number;
+  onlyIsolated: boolean;
+  isDelisted: boolean;
+  markPrice: number;
+  midPrice: number;
+  oraclePrice: number;
+  fundingRate: number;
+  fundingIntervalHours: number;
+  openInterest: number;
+  quoteVolume: number;
+};
+
+export type CrossVenuePair = {
+  id: string;
+  ticker: string;
+  bitgetSymbol: string;
+  bitgetProductType: string;
+  hyperliquidCoin: string;
+  bitgetTakerFeeRate: number;
+  hyperliquidTakerFeeRate: number;
+  bitgetFundingIntervalHours: number;
+  hyperliquidFundingIntervalHours: number;
+  maxNotionalUsd: number;
+};
+
+export type CrossVenueExecutionBand = {
+  notionalUsd: number;
+  depthOk: boolean;
+  direction: CrossVenueDirection;
+  longVenue: CrossVenueName;
+  shortVenue: CrossVenueName;
+  baseQuantity: number;
+  longEntryVwap: number;
+  shortEntryVwap: number;
+  longExitVwap: number;
+  shortExitVwap: number;
+  entryBasis: number;
+  closeBasis: number;
+  feeDrag: number;
+  expectedFundingEdge: number;
+  expectedEdge: number;
+};
+
+export type CrossVenueEvaluation = {
+  pair: CrossVenuePair;
+  status: "OPEN" | "WATCH" | "WAIT";
+  opportunityLabel: string;
+  opportunityScore: number;
+  direction: CrossVenueDirection;
+  longVenue: CrossVenueName;
+  shortVenue: CrossVenueName;
+  notionalUsd: number;
+  baseQuantity: number;
+  longEntryVwap: number;
+  shortEntryVwap: number;
+  longExitVwap: number;
+  shortExitVwap: number;
+  entryBasis: number;
+  closeBasis: number;
+  feeDrag: number;
+  expectedFundingEdge: number;
+  expectedEdge: number;
+  bitgetFundingRate: number;
+  hyperliquidFundingRate: number;
+  fundingHorizonHours: number;
+  depthOk: boolean;
+  reason: string;
+  riskNotes: string[];
+  timestamp: string;
+  executionBands: CrossVenueExecutionBand[];
+  bestExecutableBand: CrossVenueExecutionBand | null;
+};
+
+export type CrossVenueScanItem = {
+  pair: CrossVenuePair;
+  bitgetQuoteVolume: number;
+  hyperliquidQuoteVolume: number;
+  evaluation: CrossVenueEvaluation | null;
+  error: string | null;
+};
+
+export type CrossVenueOpportunityScan = {
+  generatedAt: string;
+  notionalUsd: number;
+  discoveredPairs: number;
+  scannedPairs: number;
+  openCount: number;
+  watchCount: number;
+  noOpportunityCount: number;
+  depthIssueCount: number;
+  errorCount: number;
+  fundingHorizonHours: number;
+  items: CrossVenueScanItem[];
+};
+
 export type OpportunitySnapshot = {
   status: "warming" | "scanning" | "ready" | "stale" | "error";
   latestScan: OpportunityScan | null;
+  crossVenueScan: CrossVenueOpportunityScan | null;
   scanning: boolean;
   startedAt: string | null;
   completedAt: string | null;
