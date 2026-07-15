@@ -146,7 +146,7 @@ export class FeishuOpportunityNotifier {
     await this.postText(buildCrossVenueMessage(scan, itemsToPush));
     const sentAtMs = Date.now();
     for (const item of itemsToPush) {
-      this.sentByPair.set(`cross:${item.pair.id}:${item.evaluation?.direction ?? "unknown"}`, { sentAtMs });
+      this.sentByPair.set(this.crossVenueKey(item), { sentAtMs });
     }
   }
 
@@ -158,9 +158,12 @@ export class FeishuOpportunityNotifier {
   }
 
   private shouldSendCrossVenue(item: CrossVenueScanItem): boolean {
-    const key = `cross:${item.pair.id}:${item.evaluation?.direction ?? "unknown"}`;
-    const lastSent = this.sentByPair.get(key);
+    const lastSent = this.sentByPair.get(this.crossVenueKey(item));
     return !lastSent || Date.now() - lastSent.sentAtMs >= config.feishuNotifyCooldownMs;
+  }
+
+  private crossVenueKey(item: CrossVenueScanItem): string {
+    return `cross:${item.pair.id}:${item.evaluation?.opportunityKind ?? "unknown"}:${item.evaluation?.direction ?? "unknown"}`;
   }
 
   private async postText(text: string): Promise<void> {
