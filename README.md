@@ -360,7 +360,7 @@ opportunityKind            spread_convergence / snapshot_basis / funding_carry /
 convergence.zScore         当前价差相对历史中枢的稳健 Z-Score
 convergence.absoluteDeviationPercentile  当前绝对偏离的历史分位
 convergence.halfLifeHours  价差回归半衰期估计
-convergence.historicalConvergenceRate 历史异常偏离在 4 小时内向中枢回归的比例
+convergence.historicalConvergenceRate 非重叠历史异常事件在 4 小时内向中枢回归的比例
 convergenceGrossEdge       当前可成交价差回到历史中枢的毛空间
 convergenceExpectedEdge    收敛毛空间 + 费率贡献 - 完整往返费用
 ```

@@ -55,6 +55,10 @@ function estimateConvergenceRate(input: {
     if (current < config.crossVenueConvergenceZScore * input.sigma) continue;
     observations += 1;
     if (Math.abs(input.deviations[index + horizonSteps]) < current) converged += 1;
+    // Treat a cluster of consecutive extreme candles as one event. Without
+    // this skip, a single two-hour dislocation could be counted dozens of
+    // times and make the historical convergence rate look unrealistically high.
+    index += horizonSteps;
   }
 
   return { rate: observations > 0 ? converged / observations : null, observations };
@@ -84,7 +88,7 @@ export function analyzeSpreadConvergence(
   const historicalReady = samples.length >= config.crossVenueHistoryMinSamples && robustSigma > 0;
   const meanRevertingEnough =
     (halfLifeHours != null && halfLifeHours <= config.crossVenueMaxHalfLifeHours) ||
-    (convergence.rate != null && convergence.rate >= 0.5);
+    (convergence.rate != null && convergence.observations >= 3 && convergence.rate >= 0.5);
   const isAbnormal = historicalReady && meanRevertingEnough && (
     Math.abs(zScore) >= config.crossVenueConvergenceZScore ||
     absoluteDeviationPercentile >= config.crossVenueConvergencePercentile
