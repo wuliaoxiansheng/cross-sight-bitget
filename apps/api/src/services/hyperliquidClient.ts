@@ -1,5 +1,5 @@
 import { config } from "../config/env.js";
-import type { HyperliquidPerpMarket, OrderBook, OrderBookLevel } from "../types/market.js";
+import type { HyperliquidPerpMarket, OrderBook, OrderBookLevel, PriceCandle } from "../types/market.js";
 
 type HyperliquidUniverseRow = {
   name?: unknown;
@@ -102,5 +102,23 @@ export class HyperliquidClient {
       asks: normalizeLevels(asks, "asks"),
       timestamp: toNumber(payload.time)
     };
+  }
+
+  async getCandles(
+    coin: string,
+    startTime: number,
+    endTime: number,
+    interval = "5m"
+  ): Promise<PriceCandle[]> {
+    const payload = await this.post<Array<Record<string, unknown>>>({
+      type: "candleSnapshot",
+      req: { coin, interval, startTime, endTime }
+    });
+
+    return payload.map((candle) => ({
+      timestamp: toNumber(candle.t),
+      close: toNumber(candle.c)
+    })).filter((candle) => candle.timestamp > 0 && candle.close > 0)
+      .sort((a, b) => a.timestamp - b.timestamp);
   }
 }

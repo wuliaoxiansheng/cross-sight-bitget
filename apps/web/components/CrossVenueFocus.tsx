@@ -6,6 +6,13 @@ function venueLabel(venue: "bitget" | "hyperliquid_xyz"): string {
   return venue === "bitget" ? "Bitget" : "Hyperliquid xyz";
 }
 
+function opportunityKindLabel(evaluation: CrossVenueEvaluation): string {
+  if (evaluation.opportunityKind === "spread_convergence") return "历史异常价差收敛";
+  if (evaluation.opportunityKind === "funding_carry") return "跨市场费率套利";
+  if (evaluation.opportunityKind === "snapshot_basis") return "瞬时价差";
+  return evaluation.convergence.historicalReady ? "暂无明确机会" : "历史模型学习中";
+}
+
 export function CrossVenueFocus({
   scan,
   selectedItem,
@@ -45,13 +52,15 @@ export function CrossVenueFocus({
 
       <div className="session-strip">
         <Radio size={15} />
-        <strong>两边均为永续合约</strong>
-        <span>费率比较窗口 {evaluation.fundingHorizonHours} 小时</span>
+        <strong>{opportunityKindLabel(evaluation)}</strong>
+        <span>{evaluation.convergence.sampleCount} 个历史样本 · {evaluation.convergence.windowHours.toFixed(1)} 小时窗口</span>
       </div>
 
       <div className="focus-metrics">
         <div><Activity size={16} /><span>预估净 Edge</span><strong>{formatPercent(evaluation.expectedEdge)}</strong></div>
         <div><Activity size={16} /><span>可成交基差</span><strong>{formatPercent(evaluation.entryBasis)}</strong></div>
+        <div><Activity size={16} /><span>回归中枢毛空间</span><strong>{formatPercent(evaluation.convergenceGrossEdge)}</strong></div>
+        <div><Activity size={16} /><span>收敛策略净 Edge</span><strong>{formatPercent(evaluation.convergenceExpectedEdge)}</strong></div>
         <div><Clock3 size={16} /><span>{evaluation.fundingHorizonHours}h 费率贡献</span><strong>{formatPercent(evaluation.expectedFundingEdge, 3)}</strong></div>
         <div><DollarSign size={16} /><span>双边往返费用</span><strong>{formatPercent(evaluation.feeDrag)}</strong></div>
         <div><ArrowUp size={16} /><span>多头 VWAP</span><strong>{formatUsd(evaluation.longEntryVwap)}</strong></div>
@@ -60,6 +69,34 @@ export function CrossVenueFocus({
         <div><Clock3 size={16} /><span>Hyperliquid 每小时</span><strong>{formatPercent(evaluation.hyperliquidFundingRate, 4)}</strong></div>
         <div><DollarSign size={16} /><span>监控金额</span><strong>{formatUsd(evaluation.notionalUsd)}</strong></div>
         <div><DollarSign size={16} /><span>最佳可执行档</span><strong>{evaluation.bestExecutableBand ? formatUsd(evaluation.bestExecutableBand.notionalUsd) : "暂无"}</strong></div>
+      </div>
+
+      <div className="analysis-stack">
+        <div>
+          <span>历史偏离</span>
+          <strong>
+            {evaluation.convergence.historicalReady
+              ? `Z ${evaluation.convergence.zScore.toFixed(2)} · 历史分位 ${(evaluation.convergence.absoluteDeviationPercentile * 100).toFixed(1)}%`
+              : `样本 ${evaluation.convergence.sampleCount} 个，尚未达到模型最低要求`}
+          </strong>
+        </div>
+        <div>
+          <span>正常价差中枢</span>
+          <strong>{formatPercent(evaluation.convergence.medianSignedSpread)} · 当前偏离 {formatPercent(evaluation.convergence.deviationFromMedian)}</strong>
+        </div>
+        <div>
+          <span>历史收敛特征</span>
+          <strong>
+            半衰期 {evaluation.convergence.halfLifeHours != null ? `${evaluation.convergence.halfLifeHours.toFixed(1)} 小时` : "暂不可估"}
+            {evaluation.convergence.historicalConvergenceRate != null
+              ? ` · 4 小时内向中枢回归 ${(evaluation.convergence.historicalConvergenceRate * 100).toFixed(0)}%（${evaluation.convergence.historicalConvergenceObservations} 次）`
+              : " · 暂无足够异常样本"}
+          </strong>
+        </div>
+        <div>
+          <span>收益拆解</span>
+          <strong>收敛毛空间 {formatPercent(evaluation.convergenceGrossEdge)} + 费率 {formatPercent(evaluation.expectedFundingEdge, 3)} - 往返费用 {formatPercent(evaluation.feeDrag)} = {formatPercent(evaluation.convergenceExpectedEdge)}</strong>
+        </div>
       </div>
 
       {liveError ? <div className="inline-warning"><ShieldAlert size={15} /><span>实时刷新失败，当前显示缓存：{liveError}</span></div> : null}

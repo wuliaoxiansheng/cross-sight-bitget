@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { CrossVenuePair, OrderBook } from "../types/market.js";
+import type { CrossVenuePair, OrderBook, SpreadConvergenceContext } from "../types/market.js";
 import { evaluateCrossVenueOpportunity } from "./crossVenueEngine.js";
 
 const pair: CrossVenuePair = {
@@ -21,6 +21,25 @@ function book(bid: number, ask: number, size = 100): OrderBook {
     bids: [{ price: bid, size }],
     asks: [{ price: ask, size }],
     timestamp: Date.now()
+  };
+}
+
+function convergenceContext(options: Partial<SpreadConvergenceContext> = {}): SpreadConvergenceContext {
+  return {
+    historicalReady: true,
+    sampleCount: 576,
+    windowHours: 48,
+    currentSignedSpread: Math.log(1.02),
+    medianSignedSpread: Math.log(1.01),
+    deviationFromMedian: Math.log(1.02) - Math.log(1.01),
+    robustSigma: 0.003,
+    zScore: 3.2,
+    absoluteDeviationPercentile: 0.98,
+    halfLifeHours: 2.5,
+    historicalConvergenceRate: 0.72,
+    historicalConvergenceObservations: 18,
+    isAbnormal: true,
+    ...options
   };
 }
 
@@ -86,4 +105,45 @@ test("surfaces a smaller executable band when the requested notional exceeds boo
   assert.equal(evaluation.status, "WATCH");
   assert.equal(evaluation.depthOk, false);
   assert.equal(evaluation.bestExecutableBand?.notionalUsd, 1_000);
+});
+
+test("opens an independent spread-convergence signal against the learned historical center", () => {
+  const evaluation = evaluateCrossVenueOpportunity({
+    pair,
+    notionalUsd: 5_000,
+    bitgetBook: book(102, 102.1),
+    hyperliquidBook: book(99.9, 100),
+    bitgetFundingRate: 0,
+    hyperliquidFundingRate: 0,
+    convergenceContext: convergenceContext()
+  });
+
+  assert.equal(evaluation.status, "OPEN");
+  assert.equal(evaluation.opportunityKind, "spread_convergence");
+  assert.equal(evaluation.direction, "LONG_HYPERLIQUID_SHORT_BITGET");
+  assert.ok(evaluation.convergenceGrossEdge > 0.009);
+  assert.ok(evaluation.convergenceExpectedEdge > 0.006);
+});
+
+test("does not call a stable venue premium a historical convergence anomaly", () => {
+  const stable = convergenceContext({
+    currentSignedSpread: Math.log(1.01),
+    medianSignedSpread: Math.log(1.01),
+    deviationFromMedian: 0,
+    zScore: 0,
+    absoluteDeviationPercentile: 0.5,
+    isAbnormal: false
+  });
+  const evaluation = evaluateCrossVenueOpportunity({
+    pair,
+    notionalUsd: 5_000,
+    bitgetBook: book(101, 101.1),
+    hyperliquidBook: book(99.9, 100),
+    bitgetFundingRate: 0,
+    hyperliquidFundingRate: 0,
+    convergenceContext: stable
+  });
+
+  assert.notEqual(evaluation.opportunityKind, "spread_convergence");
+  assert.ok(evaluation.convergenceGrossEdge < 0.001);
 });

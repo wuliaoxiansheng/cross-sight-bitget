@@ -8,7 +8,9 @@ import { opportunityScanCache } from "../services/opportunityScanCache.js";
 import { scanRTokenOpportunities } from "../services/opportunityScanner.js";
 import { discoverRTokenPairs } from "../services/rtokenDiscovery.js";
 import { HyperliquidClient } from "../services/hyperliquidClient.js";
-import type { MarketPairConfig } from "../types/market.js";
+import { analyzeSpreadConvergence } from "../services/spreadConvergence.js";
+import { spreadHistoryStore } from "../services/spreadHistoryStore.js";
+import type { MarketPairConfig, OrderBook } from "../types/market.js";
 
 type LiveQuery = {
   pairId?: string;
@@ -30,6 +32,12 @@ type CrossVenueLiveQuery = {
 
 function normalizeSymbol(value?: string): string | undefined {
   return value?.trim().toUpperCase() || undefined;
+}
+
+function orderBookMid(book: OrderBook): number {
+  const bid = book.bids[0]?.price ?? 0;
+  const ask = book.asks[0]?.price ?? 0;
+  return bid > 0 && ask > 0 ? (bid + ask) / 2 : bid || ask;
 }
 
 async function resolveLivePair(input: {
@@ -220,6 +228,10 @@ export async function opportunityRoutes(app: FastifyInstance) {
     if (!hyperliquidMarket) {
       return { error: "PAIR_NOT_FOUND", message: `Hyperliquid market ${item.pair.hyperliquidCoin} is unavailable` };
     }
+    const bitgetMid = orderBookMid(bitgetBook);
+    const hyperliquidMid = orderBookMid(hyperliquidBook);
+    const currentSignedSpread = bitgetMid > 0 && hyperliquidMid > 0 ? Math.log(bitgetMid / hyperliquidMid) : 0;
+    const convergenceContext = analyzeSpreadConvergence(spreadHistoryStore.get(item.pair.id), currentSignedSpread);
 
     return {
       data: evaluateCrossVenueOpportunity({
@@ -228,7 +240,8 @@ export async function opportunityRoutes(app: FastifyInstance) {
         bitgetBook,
         hyperliquidBook,
         bitgetFundingRate: bitgetFunding.fundingRate,
-        hyperliquidFundingRate: hyperliquidMarket.fundingRate
+        hyperliquidFundingRate: hyperliquidMarket.fundingRate,
+        convergenceContext
       })
     };
   });

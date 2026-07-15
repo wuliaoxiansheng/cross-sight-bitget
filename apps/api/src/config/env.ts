@@ -35,6 +35,13 @@ export type AppConfig = {
   crossVenueFundingHorizonHours: number;
   crossVenuePriceRatioMin: number;
   crossVenuePriceRatioMax: number;
+  crossVenueHistoryPath: string;
+  crossVenueHistoryDays: number;
+  crossVenueHistoryBootstrapHours: number;
+  crossVenueHistoryMinSamples: number;
+  crossVenueConvergenceZScore: number;
+  crossVenueConvergencePercentile: number;
+  crossVenueMaxHalfLifeHours: number;
 };
 
 function loadEnvFiles() {
@@ -113,5 +120,12 @@ export const config: AppConfig = {
   hyperliquidTakerFeeRate: numberFromEnv("HYPERLIQUID_TAKER_FEE_RATE", 0.0009),
   crossVenueFundingHorizonHours: numberFromEnv("CROSS_VENUE_FUNDING_HORIZON_HOURS", 8),
   crossVenuePriceRatioMin: numberFromEnv("CROSS_VENUE_PRICE_RATIO_MIN", 0.8),
-  crossVenuePriceRatioMax: numberFromEnv("CROSS_VENUE_PRICE_RATIO_MAX", 1.2)
+  crossVenuePriceRatioMax: numberFromEnv("CROSS_VENUE_PRICE_RATIO_MAX", 1.2),
+  crossVenueHistoryPath: process.env.CROSS_VENUE_HISTORY_PATH ?? "data/cross-venue-spread-history.json",
+  crossVenueHistoryDays: numberFromEnv("CROSS_VENUE_HISTORY_DAYS", 7),
+  crossVenueHistoryBootstrapHours: numberFromEnv("CROSS_VENUE_HISTORY_BOOTSTRAP_HOURS", 48),
+  crossVenueHistoryMinSamples: numberFromEnv("CROSS_VENUE_HISTORY_MIN_SAMPLES", 48),
+  crossVenueConvergenceZScore: numberFromEnv("CROSS_VENUE_CONVERGENCE_Z_SCORE", 2),
+  crossVenueConvergencePercentile: numberFromEnv("CROSS_VENUE_CONVERGENCE_PERCENTILE", 0.95),
+  crossVenueMaxHalfLifeHours: numberFromEnv("CROSS_VENUE_MAX_HALF_LIFE_HOURS", 24)
 };

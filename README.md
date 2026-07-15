@@ -13,6 +13,7 @@
 
 - 自动扫描热门 RToken 现货与合约之间的可成交基差。
 - 自动发现 Bitget RWA 与 Hyperliquid `xyz` 中同名、同价格尺度的永续合约，计算正反两个对冲方向。
+- 自动回补并持续保存两家合约的 5 分钟价差历史，识别相对历史中枢的异常偏离和均值回归机会。
 - 识别不依赖正资金费率的 RToken 基差收敛机会。
 - 监控资金费率是否足以覆盖手续费和滑点。
 - 用订单簿 VWAP 估算 5,000-10,000 USDT 规模是否真的能成交。
@@ -42,7 +43,9 @@
   方向 A = 多 Hyperliquid / 空 Bitget
   方向 B = 多 Bitget / 空 Hyperliquid
   两个方向都按 L2 VWAP、两边资金费率和完整往返手续费计算
-  只展示净 Edge 更高的方向，并把 OPEN 机会排在最前面
+  瞬时价差、费率套利、历史异常价差收敛是三个独立机会类型
+  价差收敛不假设回到 0，而是假设回到该标的自己的历史正常中枢
+  只展示净 Edge 更高的方向，并把价差收敛和 OPEN 机会排在最前面
 ```
 
 ## 技术栈
@@ -154,13 +157,20 @@ HYPERLIQUID_TAKER_FEE_RATE=0.0009
 CROSS_VENUE_FUNDING_HORIZON_HOURS=8
 CROSS_VENUE_PRICE_RATIO_MIN=0.8
 CROSS_VENUE_PRICE_RATIO_MAX=1.2
+CROSS_VENUE_HISTORY_PATH=data/cross-venue-spread-history.json
+CROSS_VENUE_HISTORY_DAYS=7
+CROSS_VENUE_HISTORY_BOOTSTRAP_HOURS=48
+CROSS_VENUE_HISTORY_MIN_SAMPLES=48
+CROSS_VENUE_CONVERGENCE_Z_SCORE=2
+CROSS_VENUE_CONVERGENCE_PERCENTILE=0.95
+CROSS_VENUE_MAX_HALF_LIFE_HOURS=24
 NEXT_PUBLIC_BASE_PATH=
 NEXT_PUBLIC_API_BASE_URL=http://localhost:4000
 ```
 
 ### 飞书机会推送
 
-配置 `FEISHU_WEBHOOK_URL` 后，服务端后台扫描发现真实可执行的 `OPEN` 信号时会自动推送飞书文本消息。消息会区分“双合约跨市场”“RToken 基差收敛”和“费率 + 价差”。
+配置 `FEISHU_WEBHOOK_URL` 后，服务端后台扫描发现真实可执行的 `OPEN` 信号时会自动推送飞书文本消息。消息会区分“历史异常价差收敛”“瞬时价差”“跨市场费率套利”“RToken 基差收敛”和“费率 + 价差”。
 
 推送条件：
 
@@ -278,6 +288,14 @@ items                每个 RToken/合约配对的扫描结果
 
 双合约扫描同样不是 top 100：服务端读取 Bitget 全量 RWA 永续与 Hyperliquid `xyz` 全量未下架永续，按基础 ticker 精确连接，并用 0.8-1.2 的价格比例防止同名不同物产生假配对。每个配对都会读取两边 L2 盘口。
 
+首次启动时，服务端还会从两家公共行情接口回补最近 48 小时的 5 分钟 K 线，按时间戳对齐后保存有符号价差：
+
+```text
+signed_spread = log(bitget_close / hyperliquid_close)
+```
+
+后续每轮扫描继续写入实时盘口中价，滚动保留 7 天。历史文件默认位于 `data/cross-venue-spread-history.json`，使用临时文件 + rename 原子更新，服务重启后不会重新从零学习。
+
 资金费率字段需要分开看：
 
 ```text
@@ -338,6 +356,13 @@ expectedFundingEdge       统一到 8 小时窗口后的净费率贡献
 feeDrag                   两边开仓和平仓共四次 taker 的费用
 expectedEdge              entryBasis + expectedFundingEdge - feeDrag
 executionBands            500 / 1000 / 2500 / 5000 / 10000 USDT 深度档位
+opportunityKind            spread_convergence / snapshot_basis / funding_carry / none
+convergence.zScore         当前价差相对历史中枢的稳健 Z-Score
+convergence.absoluteDeviationPercentile  当前绝对偏离的历史分位
+convergence.halfLifeHours  价差回归半衰期估计
+convergence.historicalConvergenceRate 历史异常偏离在 4 小时内向中枢回归的比例
+convergenceGrossEdge       当前可成交价差回到历史中枢的毛空间
+convergenceExpectedEdge    收敛毛空间 + 费率贡献 - 完整往返费用
 ```
 
 ### Paper trade 预览
@@ -403,6 +428,21 @@ expected_edge = short_entry_vwap / long_entry_vwap - 1
 ```
 
 默认 Hyperliquid HIP-3 taker 费率按每次 `0.09%` 保守估算，Bitget 每次 `0.06%`，因此双边完整往返费用假设为 `0.30%`。实际账户等级不同，应调整 `HYPERLIQUID_TAKER_FEE_RATE`。
+
+### 历史价差收敛
+
+模型使用历史中位数和 MAD（Median Absolute Deviation）估计正常价差与波动，不容易被单次尖峰污染。价差收敛信号需同时满足：
+
+```text
+历史样本 >= 48
+abs(z_score) >= 2 或绝对偏离达到历史 95% 分位
+历史半衰期 <= 24 小时，或过去异常样本至少 50% 在 4 小时内向中枢回归
+做多低价市场、做空高价市场的方向与偏离方向一致
+L2 深度覆盖目标名义金额
+convergence_expected_edge >= OPEN_EDGE_THRESHOLD
+```
+
+若偏离异常但扣费后尚未盈利，页面显示为“异常偏离”候选，不会标成可开仓机会。
 
 默认：
 

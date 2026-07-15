@@ -6,5 +6,5 @@ coverage/
 .env.local
 .DS_Store
 *.log
+**/data/*.json
 prisma/dev.db
-

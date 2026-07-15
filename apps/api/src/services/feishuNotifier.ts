@@ -67,10 +67,18 @@ function buildCrossVenueMessage(scan: CrossVenueOpportunityScan, items: CrossVen
   const lines = items.map((item, index) => {
     const evaluation = item.evaluation;
     if (!evaluation) return "";
+    const kindLabel = evaluation.opportunityKind === "spread_convergence"
+      ? "历史异常价差收敛"
+      : evaluation.opportunityKind === "funding_carry"
+        ? "跨市场费率套利"
+        : "瞬时价差";
+    const historyLine = evaluation.opportunityKind === "spread_convergence"
+      ? `\n   历史：Z ${evaluation.convergence.zScore.toFixed(2)} | 分位 ${(evaluation.convergence.absoluteDeviationPercentile * 100).toFixed(1)}% | 中枢 ${formatPercent(evaluation.convergence.medianSignedSpread)}`
+      : "";
     return [
-      `${index + 1}. [双合约跨市场] ${item.pair.ticker}`,
+      `${index + 1}. [${kindLabel}] ${item.pair.ticker}`,
       `   多：${crossVenueLabel(evaluation.longVenue)} | 空：${crossVenueLabel(evaluation.shortVenue)}`,
-      `   预估 Edge：${formatPercent(evaluation.expectedEdge)} | 成交基差：${formatPercent(evaluation.entryBasis)} | ${scan.fundingHorizonHours}h 费率差：${formatPercent(evaluation.expectedFundingEdge)}`,
+      `   预估 Edge：${formatPercent(evaluation.expectedEdge)} | 成交基差：${formatPercent(evaluation.entryBasis)} | 收敛空间：${formatPercent(evaluation.convergenceGrossEdge)} | ${scan.fundingHorizonHours}h 费率差：${formatPercent(evaluation.expectedFundingEdge)}${historyLine}`,
       `   VWAP：多头 ${formatPrice(evaluation.longEntryVwap)} / 空头 ${formatPrice(evaluation.shortEntryVwap)}`,
       `   费用假设：双边往返 ${formatPercent(evaluation.feeDrag)} | 名义金额 ${evaluation.notionalUsd.toLocaleString("en-US")} USDT`,
       `   风险：${evaluation.riskNotes[0]}`

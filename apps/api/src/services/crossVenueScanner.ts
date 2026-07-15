@@ -10,6 +10,8 @@ import type {
 import { BitgetClient } from "./bitgetClient.js";
 import { evaluateCrossVenueOpportunity } from "./crossVenueEngine.js";
 import { HyperliquidClient } from "./hyperliquidClient.js";
+import { analyzeSpreadConvergence } from "./spreadConvergence.js";
+import { alignSpreadCandles, spreadHistoryStore, SpreadHistoryStore } from "./spreadHistoryStore.js";
 
 const PRODUCT_TYPE = "USDT-FUTURES";
 const MAX_NOTIONAL_USD = 10_000;
@@ -24,6 +26,12 @@ type DiscoveredPair = {
 function tickerMid(ticker: FuturesTicker): number {
   if (ticker.bidPrice > 0 && ticker.askPrice > 0) return (ticker.bidPrice + ticker.askPrice) / 2;
   return ticker.markPrice || ticker.lastPrice;
+}
+
+function orderBookMid(book: { bids: Array<{ price: number }>; asks: Array<{ price: number }> }): number {
+  const bid = book.bids[0]?.price ?? 0;
+  const ask = book.asks[0]?.price ?? 0;
+  return bid > 0 && ask > 0 ? (bid + ask) / 2 : bid || ask;
 }
 
 export function discoverCrossVenuePairs(input: {
@@ -67,9 +75,11 @@ export function discoverCrossVenuePairs(input: {
 
 function sortItems(a: CrossVenueScanItem, b: CrossVenueScanItem): number {
   const rank = { OPEN: 0, WATCH: 1, WAIT: 2 } as const;
+  const kindRank = { spread_convergence: 0, funding_carry: 1, snapshot_basis: 2, none: 3 } as const;
   const statusA = a.evaluation?.status ?? "WAIT";
   const statusB = b.evaluation?.status ?? "WAIT";
   return rank[statusA] - rank[statusB] ||
+    kindRank[a.evaluation?.opportunityKind ?? "none"] - kindRank[b.evaluation?.opportunityKind ?? "none"] ||
     (b.evaluation?.expectedEdge ?? Number.NEGATIVE_INFINITY) -
       (a.evaluation?.expectedEdge ?? Number.NEGATIVE_INFINITY) ||
     b.bitgetQuoteVolume + b.hyperliquidQuoteVolume - (a.bitgetQuoteVolume + a.hyperliquidQuoteVolume);
@@ -95,7 +105,10 @@ export async function scanCrossVenueOpportunities(input: {
   bitget: BitgetClient;
   hyperliquid: HyperliquidClient;
   notionalUsd: number;
+  historyStore?: SpreadHistoryStore;
 }): Promise<CrossVenueOpportunityScan> {
+  const historyStore = input.historyStore ?? spreadHistoryStore;
+  historyStore.load();
   const [contracts, bitgetTickers, hyperliquidMarkets] = await Promise.all([
     input.bitget.getFuturesContracts(PRODUCT_TYPE),
     input.bitget.getFuturesTickers(PRODUCT_TYPE),
@@ -104,18 +117,42 @@ export async function scanCrossVenueOpportunities(input: {
   const discovered = discoverCrossVenuePairs({ contracts, bitgetTickers, hyperliquidMarkets });
   const items = await mapWithConcurrency(discovered, CONCURRENCY, async (item): Promise<CrossVenueScanItem> => {
     try {
-      const [bitgetBook, hyperliquidBook] = await Promise.all([
+      const existingHistory = historyStore.get(item.pair.id);
+      const needsBootstrap = existingHistory.length < config.crossVenueHistoryMinSamples;
+      const candleLimit = Math.min(1000, Math.ceil(config.crossVenueHistoryBootstrapHours * 12) + 2);
+      const endTime = Date.now();
+      const startTime = endTime - config.crossVenueHistoryBootstrapHours * 60 * 60 * 1000;
+      const bootstrapPromise = needsBootstrap
+        ? Promise.all([
+            input.bitget.getFuturesCandles(item.pair.bitgetSymbol, item.pair.bitgetProductType, "5m", candleLimit),
+            input.hyperliquid.getCandles(item.pair.hyperliquidCoin, startTime, endTime, "5m")
+          ]).then(([bitgetCandles, hyperliquidCandles]) => alignSpreadCandles(bitgetCandles, hyperliquidCandles))
+          .catch((error) => {
+            console.error(`Failed to bootstrap spread history for ${item.pair.id}`, error);
+            return [];
+          })
+        : Promise.resolve([]);
+      const [bitgetBook, hyperliquidBook, bootstrapSamples] = await Promise.all([
         input.bitget.getFuturesOrderBook(item.pair.bitgetSymbol, item.pair.bitgetProductType),
-        input.hyperliquid.getOrderBook(item.pair.hyperliquidCoin)
+        input.hyperliquid.getOrderBook(item.pair.hyperliquidCoin),
+        bootstrapPromise
       ]);
+      if (bootstrapSamples.length > 0) historyStore.merge(item.pair.id, bootstrapSamples);
+
+      const bitgetMid = orderBookMid(bitgetBook);
+      const hyperliquidMid = orderBookMid(hyperliquidBook);
+      const currentSignedSpread = bitgetMid > 0 && hyperliquidMid > 0 ? Math.log(bitgetMid / hyperliquidMid) : 0;
+      const convergenceContext = analyzeSpreadConvergence(historyStore.get(item.pair.id), currentSignedSpread);
       const evaluation = evaluateCrossVenueOpportunity({
         pair: item.pair,
         notionalUsd: input.notionalUsd,
         bitgetBook,
         hyperliquidBook,
         bitgetFundingRate: item.bitgetTicker.fundingRate,
-        hyperliquidFundingRate: item.hyperliquidMarket.fundingRate
+        hyperliquidFundingRate: item.hyperliquidMarket.fundingRate,
+        convergenceContext
       });
+      historyStore.merge(item.pair.id, [{ timestamp: Date.now(), signedSpread: currentSignedSpread }]);
 
       return {
         pair: item.pair,
@@ -134,6 +171,11 @@ export async function scanCrossVenueOpportunities(input: {
       };
     }
   });
+  try {
+    historyStore.save();
+  } catch (error) {
+    console.error("Failed to persist cross-venue spread history", error);
+  }
   const sorted = items.sort(sortItems);
   const openCount = sorted.filter((item) => item.evaluation?.status === "OPEN").length;
   const watchCount = sorted.filter((item) => item.evaluation?.status === "WATCH").length;

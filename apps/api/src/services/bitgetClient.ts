@@ -6,6 +6,7 @@ import type {
   FuturesTicker,
   OrderBook,
   OrderBookLevel,
+  PriceCandle,
   SpotSymbolConfig,
   SpotTicker
 } from "../types/market.js";
@@ -193,6 +194,23 @@ export class BitgetClient {
       asks: normalizeLevels(data.asks, "asks"),
       timestamp: toNumber(data.ts)
     };
+  }
+
+  async getFuturesCandles(
+    symbol: string,
+    productType: string,
+    granularity = "5m",
+    limit = 1000
+  ): Promise<PriceCandle[]> {
+    const data = await this.get<unknown[][]>(
+      `/api/v2/mix/market/candles?symbol=${symbol}&productType=${productType}&granularity=${granularity}&limit=${limit}`
+    );
+
+    return data.map((row) => ({
+      timestamp: toNumber(row[0]),
+      close: toNumber(row[4])
+    })).filter((candle) => candle.timestamp > 0 && candle.close > 0)
+      .sort((a, b) => a.timestamp - b.timestamp);
   }
 
   async getCurrentFundingRate(symbol: string, productType: string): Promise<FundingRate> {

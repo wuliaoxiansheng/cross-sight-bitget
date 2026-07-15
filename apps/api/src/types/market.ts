@@ -85,6 +85,11 @@ export type HistoricalFundingRate = {
   fundingTime: number;
 };
 
+export type PriceCandle = {
+  timestamp: number;
+  close: number;
+};
+
 export type FundingContext = {
   currentRate: number;
   intervalHours: number;
@@ -222,6 +227,33 @@ export type CrossVenueDirection =
   | "LONG_HYPERLIQUID_SHORT_BITGET"
   | "LONG_BITGET_SHORT_HYPERLIQUID";
 
+export type CrossVenueOpportunityKind =
+  | "spread_convergence"
+  | "snapshot_basis"
+  | "funding_carry"
+  | "none";
+
+export type SpreadHistorySample = {
+  timestamp: number;
+  signedSpread: number;
+};
+
+export type SpreadConvergenceContext = {
+  historicalReady: boolean;
+  sampleCount: number;
+  windowHours: number;
+  currentSignedSpread: number;
+  medianSignedSpread: number;
+  deviationFromMedian: number;
+  robustSigma: number;
+  zScore: number;
+  absoluteDeviationPercentile: number;
+  halfLifeHours: number | null;
+  historicalConvergenceRate: number | null;
+  historicalConvergenceObservations: number;
+  isAbnormal: boolean;
+};
+
 export type HyperliquidPerpMarket = {
   coin: string;
   ticker: string;
@@ -265,13 +297,19 @@ export type CrossVenueExecutionBand = {
   closeBasis: number;
   feeDrag: number;
   expectedFundingEdge: number;
+  snapshotExpectedEdge: number;
+  targetDirectionalBasis: number;
+  convergenceGrossEdge: number;
+  convergenceExpectedEdge: number;
   expectedEdge: number;
+  opportunityKind: CrossVenueOpportunityKind;
 };
 
 export type CrossVenueEvaluation = {
   pair: CrossVenuePair;
   status: "OPEN" | "WATCH" | "WAIT";
   opportunityLabel: string;
+  opportunityKind: CrossVenueOpportunityKind;
   opportunityScore: number;
   direction: CrossVenueDirection;
   longVenue: CrossVenueName;
@@ -286,10 +324,15 @@ export type CrossVenueEvaluation = {
   closeBasis: number;
   feeDrag: number;
   expectedFundingEdge: number;
+  snapshotExpectedEdge: number;
+  targetDirectionalBasis: number;
+  convergenceGrossEdge: number;
+  convergenceExpectedEdge: number;
   expectedEdge: number;
   bitgetFundingRate: number;
   hyperliquidFundingRate: number;
   fundingHorizonHours: number;
+  convergence: SpreadConvergenceContext;
   depthOk: boolean;
   reason: string;
   riskNotes: string[];

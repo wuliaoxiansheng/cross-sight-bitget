@@ -21,7 +21,7 @@ import { API_BASE_URL, getLiveCrossVenueOpportunity, getLiveOpportunity } from "
 
 type MarketMode = "cross" | "rtoken";
 type SignalFilter = "all" | "open" | "basis" | "funding" | "candidate" | "small-size" | "funding-watch" | "funding-zero" | "recent-funding" | "depth" | "none";
-type CrossFilter = "all" | "open" | "watch" | "depth" | "none";
+type CrossFilter = "all" | "open" | "convergence" | "funding" | "basis" | "watch" | "depth" | "none";
 
 const RTOKEN_FILTERS: Array<{ id: SignalFilter; label: string }> = [
   { id: "all", label: "全部" },
@@ -40,6 +40,9 @@ const RTOKEN_FILTERS: Array<{ id: SignalFilter; label: string }> = [
 const CROSS_FILTERS: Array<{ id: CrossFilter; label: string }> = [
   { id: "all", label: "全部" },
   { id: "open", label: "有机会" },
+  { id: "convergence", label: "价差收敛" },
+  { id: "funding", label: "费率套利" },
+  { id: "basis", label: "瞬时价差" },
   { id: "watch", label: "候选" },
   { id: "depth", label: "深度不足" },
   { id: "none", label: "无机会" }
@@ -89,6 +92,9 @@ function matchesCrossFilter(item: CrossVenueScanItem, filter: CrossFilter): bool
   if (filter === "all") return true;
   if (!item.evaluation) return filter === "none";
   if (filter === "open") return item.evaluation.status === "OPEN";
+  if (filter === "convergence") return item.evaluation.opportunityKind === "spread_convergence";
+  if (filter === "funding") return item.evaluation.opportunityKind === "funding_carry";
+  if (filter === "basis") return item.evaluation.opportunityKind === "snapshot_basis";
   if (filter === "watch") return item.evaluation.status === "WATCH";
   if (filter === "depth") return !item.evaluation.depthOk;
   return item.evaluation.status === "WAIT" && item.evaluation.depthOk;
