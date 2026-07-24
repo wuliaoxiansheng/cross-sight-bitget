@@ -153,5 +153,5 @@ test("builds a non-trading test card from the current cache summary", () => {
   assert.equal(card.header.template, "orange");
   assert.match(text, /卡片通知已接通/);
   assert.match(text, /RToken 候选/);
-  assert.match(text, /不代表可直接交易/);
+  assert.match(text, /不代表真实行情或可直接交易/);
 });

@@ -294,7 +294,7 @@ export function buildFeishuTestCard(summary: FeishuTestCardSummary): LarkInterac
       }
     },
     elements: [
-      textDiv("生产扫描器与 Lark 交互卡片通道连接正常。下面是发送测试时的缓存快照，不代表可直接交易。"),
+      textDiv("Lark 交互卡片通道连接正常。下面是发送测试时的模拟快照，不代表真实行情或可直接交易。"),
       metricFields([
         { label: "RToken 可执行", value: `${summary.rTokenOpenCount}` },
         { label: "RToken 候选", value: `${summary.rTokenCandidateCount}` },
