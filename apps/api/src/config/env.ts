@@ -26,6 +26,8 @@ export type AppConfig = {
   // Per-pair cooldown to avoid posting the same OPEN signal every scan.
   feishuNotifyCooldownMs: number;
   feishuNotifyMaxItems: number;
+  // Public dashboard opened by the action button in Lark opportunity cards.
+  crossSightPublicUrl: string;
   // Reject order books whose best bid/ask diverges too far from the exchange
   // ticker. This catches stale or internally inconsistent RToken books.
   orderBookTickerMaxDeviation: number;
@@ -116,6 +118,7 @@ export const config: AppConfig = {
   feishuKeyword: process.env.FEISHU_KEYWORD ?? "美股",
   feishuNotifyCooldownMs: numberFromEnv("FEISHU_NOTIFY_COOLDOWN_MS", 1_800_000),
   feishuNotifyMaxItems: numberFromEnv("FEISHU_NOTIFY_MAX_ITEMS", 5),
+  crossSightPublicUrl: process.env.CROSS_SIGHT_PUBLIC_URL ?? "https://wuliaobtc.cloud/cross-sight-bitget",
   orderBookTickerMaxDeviation: numberFromEnv("ORDER_BOOK_TICKER_MAX_DEVIATION", 0.02),
   hyperliquidTakerFeeRate: numberFromEnv("HYPERLIQUID_TAKER_FEE_RATE", 0.0009),
   crossVenueFundingHorizonHours: numberFromEnv("CROSS_VENUE_FUNDING_HORIZON_HOURS", 8),
