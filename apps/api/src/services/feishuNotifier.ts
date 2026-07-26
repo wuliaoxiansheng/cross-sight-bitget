@@ -151,16 +151,10 @@ function renderRTokenOpportunity(item: OpportunityScanItem, index: number): Lark
 
   return [
     textDiv(`**${index + 1}. ${pairLabel(item)} | ${strategyLabel}**\n可执行方向：买入 RToken 现货，做空同标的永续合约`),
-    metricFields([
-      { label: "预估净 Edge", value: formatPercent(evaluation.expectedEdge) },
-      { label: "开仓成交基差", value: formatPercent(evaluation.entryBasis) },
-      { label: "资金费率 / 年化", value: `${formatPercent(evaluation.fundingRate)} / ${formatPercent(evaluation.fundingApr)}` },
-      { label: "计划名义金额", value: `${evaluation.notionalUsd.toLocaleString("en-US")} USDT` }
-    ]),
     textDiv(
-      `**成交参考**\n现货买入 VWAP ${formatPrice(evaluation.spotBuyVwap)} | 合约做空 VWAP ${formatPrice(evaluation.futuresShortVwap)}\n` +
-      `**Agent 判断**\n${evaluation.analysis.signalSummary}\n` +
-      `**主要风险**\n${evaluation.analysis.riskNotes[0] ?? evaluation.reason}`
+      `净 Edge **${formatPercent(evaluation.expectedEdge)}** | 基差 ${formatPercent(evaluation.entryBasis)} | 费率年化 ${formatPercent(evaluation.fundingApr)}\n` +
+      `VWAP ${formatPrice(evaluation.spotBuyVwap)} / ${formatPrice(evaluation.futuresShortVwap)} | ${evaluation.notionalUsd.toLocaleString("en-US")} USDT\n` +
+      `风险：${evaluation.analysis.riskNotes[0] ?? evaluation.reason}`
     ),
     { tag: "hr" }
   ];
@@ -189,16 +183,10 @@ function renderCrossVenueOpportunity(
       `**${index + 1}. ${item.pair.ticker} | ${kindLabel}**\n` +
       `做多 ${crossVenueLabel(evaluation.longVenue)}，做空 ${crossVenueLabel(evaluation.shortVenue)}`
     ),
-    metricFields([
-      { label: "预估净 Edge", value: formatPercent(evaluation.expectedEdge) },
-      { label: "开仓成交基差", value: formatPercent(evaluation.entryBasis) },
-      { label: "预估收敛空间", value: formatPercent(evaluation.convergenceGrossEdge) },
-      { label: `${scan.fundingHorizonHours}h 费率贡献`, value: formatPercent(evaluation.expectedFundingEdge) }
-    ]),
     textDiv(
-      `**成交参考**\n多头 VWAP ${formatPrice(evaluation.longEntryVwap)} | 空头 VWAP ${formatPrice(evaluation.shortEntryVwap)} | 名义金额 ${evaluation.notionalUsd.toLocaleString("en-US")} USDT\n` +
+      `净 Edge **${formatPercent(evaluation.expectedEdge)}** | 收敛 ${formatPercent(evaluation.convergenceGrossEdge)} | ${scan.fundingHorizonHours}h 费率 ${formatPercent(evaluation.expectedFundingEdge)}\n` +
       historyText +
-      `**主要风险**\n${evaluation.riskNotes[0] ?? evaluation.reason}`
+      `VWAP ${formatPrice(evaluation.longEntryVwap)} / ${formatPrice(evaluation.shortEntryVwap)} | 风险：${evaluation.riskNotes[0] ?? evaluation.reason}`
     ),
     { tag: "hr" }
   ];
@@ -234,7 +222,7 @@ export function buildRTokenOpportunityCard(
         elements: [
           {
             tag: "plain_text",
-            content: `仅推送 OPEN 且深度校验通过的机会；同一交易对冷却 ${Math.round(config.feishuNotifyCooldownMs / 60_000)} 分钟。`
+            content: `仅展示 Edge 最高的 ${items.length} 个；同批机会 ${Math.round(config.feishuNotifyCooldownMs / 3_600_000)} 小时后才会重复提醒。`
           }
         ]
       },
@@ -324,18 +312,25 @@ function isFeishuSuccess(response: FeishuResponse): boolean {
 
 export class FeishuOpportunityNotifier {
   private readonly sentByPair = new Map<string, SentState>();
+  private lastRTokenCardAtMs = 0;
+  private lastCrossVenueCardAtMs = 0;
 
   async notifyOpenOpportunities(scan: OpportunityScan): Promise<void> {
     if (!config.feishuWebhookUrl) return;
 
-    const dueItems = scan.items.filter((item) => isPushableOpen(item) && this.shouldSend(item));
+    const openItems = scan.items.filter(isPushableOpen);
+    const dueItems = openItems.filter((item) => this.shouldSend(item));
     if (dueItems.length === 0) return;
+    if (!this.cardIntervalElapsed(this.lastRTokenCardAtMs)) return;
 
-    const itemsToPush = dueItems.slice(0, config.feishuNotifyMaxItems);
+    const itemsToPush = this.sortRTokenByEdge(dueItems).slice(0, config.feishuNotifyMaxItems);
     await this.postCard(buildRTokenOpportunityCard(scan, itemsToPush));
 
     const sentAtMs = Date.now();
-    for (const item of itemsToPush) {
+    this.lastRTokenCardAtMs = sentAtMs;
+    // Mark the whole OPEN batch, including omitted rows, so they do not spill
+    // into follow-up cards on the next five-minute scan.
+    for (const item of openItems) {
       const key = `${item.pair.id}:${item.evaluation?.opportunityKind ?? "unknown"}`;
       this.sentByPair.set(key, { sentAtMs });
     }
@@ -343,13 +338,16 @@ export class FeishuOpportunityNotifier {
 
   async notifyCrossVenueOpportunities(scan: CrossVenueOpportunityScan): Promise<void> {
     if (!config.feishuWebhookUrl) return;
-    const dueItems = scan.items.filter((item) => isPushableCrossVenue(item) && this.shouldSendCrossVenue(item));
+    const openItems = scan.items.filter(isPushableCrossVenue);
+    const dueItems = openItems.filter((item) => this.shouldSendCrossVenue(item));
     if (dueItems.length === 0) return;
+    if (!this.cardIntervalElapsed(this.lastCrossVenueCardAtMs)) return;
 
-    const itemsToPush = dueItems.slice(0, config.feishuNotifyMaxItems);
+    const itemsToPush = this.sortCrossVenueByEdge(dueItems).slice(0, config.feishuNotifyMaxItems);
     await this.postCard(buildCrossVenueOpportunityCard(scan, itemsToPush));
     const sentAtMs = Date.now();
-    for (const item of itemsToPush) {
+    this.lastCrossVenueCardAtMs = sentAtMs;
+    for (const item of openItems) {
       this.sentByPair.set(this.crossVenueKey(item), { sentAtMs });
     }
   }
@@ -371,6 +369,24 @@ export class FeishuOpportunityNotifier {
   private shouldSendCrossVenue(item: CrossVenueScanItem): boolean {
     const lastSent = this.sentByPair.get(this.crossVenueKey(item));
     return !lastSent || Date.now() - lastSent.sentAtMs >= config.feishuNotifyCooldownMs;
+  }
+
+  private cardIntervalElapsed(lastSentAtMs: number): boolean {
+    return !lastSentAtMs || Date.now() - lastSentAtMs >= config.feishuNotifyMinIntervalMs;
+  }
+
+  private sortRTokenByEdge(items: OpportunityScanItem[]): OpportunityScanItem[] {
+    return [...items].sort(
+      (left, right) => (right.evaluation?.expectedEdge ?? Number.NEGATIVE_INFINITY) -
+        (left.evaluation?.expectedEdge ?? Number.NEGATIVE_INFINITY)
+    );
+  }
+
+  private sortCrossVenueByEdge(items: CrossVenueScanItem[]): CrossVenueScanItem[] {
+    return [...items].sort(
+      (left, right) => (right.evaluation?.expectedEdge ?? Number.NEGATIVE_INFINITY) -
+        (left.evaluation?.expectedEdge ?? Number.NEGATIVE_INFINITY)
+    );
   }
 
   private crossVenueKey(item: CrossVenueScanItem): string {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { config } from "../config/env.js";
 import type {
   CrossVenueOpportunityScan,
   CrossVenueScanItem,
@@ -9,7 +10,8 @@ import type {
 import {
   buildCrossVenueOpportunityCard,
   buildFeishuTestCard,
-  buildRTokenOpportunityCard
+  buildRTokenOpportunityCard,
+  FeishuOpportunityNotifier
 } from "./feishuNotifier.js";
 
 function flattenCardText(value: unknown): string {
@@ -124,7 +126,7 @@ test("builds a structured RToken opportunity card with execution details", () =>
 
   assert.equal(card.header.template, "green");
   assert.match(text, /RSPCXUSDT \/ SPCXUSDT/);
-  assert.match(text, /预估净 Edge/);
+  assert.match(text, /净 Edge/);
   assert.match(text, /1\.68%/);
   assert.match(text, /打开 Cross Sight/);
 });
@@ -154,4 +156,94 @@ test("builds a non-trading test card from the current cache summary", () => {
   assert.match(text, /卡片通知已接通/);
   assert.match(text, /RToken 候选/);
   assert.match(text, /不代表真实行情或可直接交易/);
+});
+
+test("sends one digest for the whole OPEN batch and does not spill omitted rows into later scans", async (t) => {
+  const originalFetch = globalThis.fetch;
+  const originalWebhookUrl = config.feishuWebhookUrl;
+  const originalMaxItems = config.feishuNotifyMaxItems;
+  const originalCooldownMs = config.feishuNotifyCooldownMs;
+  const originalMinIntervalMs = config.feishuNotifyMinIntervalMs;
+  const requests: Array<{ card: unknown }> = [];
+
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    config.feishuWebhookUrl = originalWebhookUrl;
+    config.feishuNotifyMaxItems = originalMaxItems;
+    config.feishuNotifyCooldownMs = originalCooldownMs;
+    config.feishuNotifyMinIntervalMs = originalMinIntervalMs;
+  });
+
+  config.feishuWebhookUrl = "https://example.invalid/lark-webhook";
+  config.feishuNotifyMaxItems = 1;
+  config.feishuNotifyCooldownMs = 6 * 60 * 60 * 1000;
+  config.feishuNotifyMinIntervalMs = 60 * 60 * 1000;
+  globalThis.fetch = async (_input, init) => {
+    requests.push(JSON.parse(String(init?.body)) as { card: unknown });
+    return new Response(JSON.stringify({ code: 0 }), {
+      status: 200,
+      headers: {
+        "content-type": "application/json"
+      }
+    });
+  };
+
+  const weaker = {
+    ...rTokenItem,
+    pair: {
+      ...rTokenItem.pair,
+      id: "weak_pair",
+      spotSymbol: "RWEAKUSDT",
+      futuresSymbol: "WEAKUSDT"
+    },
+    evaluation: {
+      ...rTokenItem.evaluation!,
+      expectedEdge: 0.01
+    }
+  } as OpportunityScanItem;
+  const stronger = {
+    ...rTokenItem,
+    pair: {
+      ...rTokenItem.pair,
+      id: "strong_pair",
+      spotSymbol: "RSTRONGUSDT",
+      futuresSymbol: "STRONGUSDT"
+    },
+    evaluation: {
+      ...rTokenItem.evaluation!,
+      expectedEdge: 0.03
+    }
+  } as OpportunityScanItem;
+  const newArrival = {
+    ...rTokenItem,
+    pair: {
+      ...rTokenItem.pair,
+      id: "new_pair",
+      spotSymbol: "RNEWUSDT",
+      futuresSymbol: "NEWUSDT"
+    },
+    evaluation: {
+      ...rTokenItem.evaluation!,
+      expectedEdge: 0.02
+    }
+  } as OpportunityScanItem;
+  const notifier = new FeishuOpportunityNotifier();
+  const firstScan = {
+    ...rTokenScan,
+    openCount: 2,
+    items: [weaker, stronger]
+  } as OpportunityScan;
+
+  await notifier.notifyOpenOpportunities(firstScan);
+  await notifier.notifyOpenOpportunities(firstScan);
+  await notifier.notifyOpenOpportunities({
+    ...firstScan,
+    openCount: 3,
+    items: [weaker, stronger, newArrival]
+  });
+
+  assert.equal(requests.length, 1);
+  const sentText = flattenCardText(requests[0].card);
+  assert.match(sentText, /RSTRONGUSDT/);
+  assert.doesNotMatch(sentText, /RWEAKUSDT/);
 });

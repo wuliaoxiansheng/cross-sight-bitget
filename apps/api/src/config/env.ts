@@ -25,6 +25,8 @@ export type AppConfig = {
   feishuKeyword: string;
   // Per-pair cooldown to avoid posting the same OPEN signal every scan.
   feishuNotifyCooldownMs: number;
+  // Hard minimum spacing between two cards of the same scanner type.
+  feishuNotifyMinIntervalMs: number;
   feishuNotifyMaxItems: number;
   // Public dashboard opened by the action button in Lark opportunity cards.
   crossSightPublicUrl: string;
@@ -116,8 +118,9 @@ export const config: AppConfig = {
   liveScanMinIntervalMs: numberFromEnv("LIVE_SCAN_MIN_INTERVAL_MS", 10_000),
   feishuWebhookUrl: process.env.FEISHU_WEBHOOK_URL ?? "",
   feishuKeyword: process.env.FEISHU_KEYWORD ?? "美股",
-  feishuNotifyCooldownMs: numberFromEnv("FEISHU_NOTIFY_COOLDOWN_MS", 1_800_000),
-  feishuNotifyMaxItems: numberFromEnv("FEISHU_NOTIFY_MAX_ITEMS", 5),
+  feishuNotifyCooldownMs: numberFromEnv("FEISHU_NOTIFY_COOLDOWN_MS", 21_600_000),
+  feishuNotifyMinIntervalMs: numberFromEnv("FEISHU_NOTIFY_MIN_INTERVAL_MS", 3_600_000),
+  feishuNotifyMaxItems: numberFromEnv("FEISHU_NOTIFY_MAX_ITEMS", 3),
   crossSightPublicUrl: process.env.CROSS_SIGHT_PUBLIC_URL ?? "https://wuliaobtc.cloud/cross-sight-bitget",
   orderBookTickerMaxDeviation: numberFromEnv("ORDER_BOOK_TICKER_MAX_DEVIATION", 0.02),
   hyperliquidTakerFeeRate: numberFromEnv("HYPERLIQUID_TAKER_FEE_RATE", 0.0009),
